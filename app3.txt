@@ -1,0 +1,1083 @@
+='speakeasy-slide')return;" +
+            "b.style.display=d.black?'block':'none';document.title='SpeakEasy · Slide '+d.n+' of '+d.total;" +
+            "var key=d.n+'|'+(d.html||'')+'|'+(d.img&&d.img.slice(0,5)==='blob:'?d.img:'');" +
+            "if(d.img){var im=s.querySelector('img');if(!im||key!==last){s.className='img';s.innerHTML='';im=document.createElement('img');im.alt='Slide '+d.n;s.appendChild(im);}if(im.getAttribute('src')!==d.img)im.setAttribute('src',d.img);}" +
+            "else if(key!==last){s.className='';s.innerHTML=d.html||'';}last=key;" +
+            "if(d.media){if(!m||m.getAttribute('src')!==d.media.src){if(m)m.remove();m=document.createElement(d.media.kind);m.id='m';m.className=d.media.kind;m.muted=true;m.playsInline=true;m.setAttribute('src',d.media.src);document.body.appendChild(m);}" +
+            "if(Math.abs(m.currentTime-d.media.time)>0.4)m.currentTime=d.media.time;if(d.media.playing){var p=m.play();if(p&&p.catch)p.catch(function(){});}else m.pause();}" +
+            "else if(m){m.remove();m=null;}});" +
+            "<\/script></body></html>";
+        }
+        function openAudience() {
+          if (audienceOpen()) { audience.focus(); syncAudience(); return true; }
+          var w = null;
+          try { w = window.open("", "speakeasy-audience", "popup=yes,width=1280,height=720"); } catch (e) { w = null; }
+          if (!w) return false;
+          try {
+            w.document.open(); w.document.write(audienceDoc()); w.document.close();
+          } catch (e) { try { w.close(); } catch (x) {} return false; }
+          audience = w;
+          setTimeout(syncAudience, 50);
+          syncAudience();
+          return true;
+        }
+        document.getElementById("audience").addEventListener("click", function () {
+          if (openAudience()) { if (window.cueToast) window.cueToast("Audience window open — drag it to the projector"); return; }
+          if (window.cueToast) window.cueToast("Pop-ups are blocked — showing the slides fullscreen instead");
+          if (!document.fullscreenElement && !stage.classList.contains("is-pseudo-fs")) fsBtn.click();
+        });
+        window.addEventListener("beforeunload", function () { if (audienceOpen()) audience.close(); });
+
+        document.getElementById("back").addEventListener("click", prev);
+        document.getElementById("next").addEventListener("click", next);
+        document.getElementById("black").addEventListener("click", toggleBlackout);
+        canvas.addEventListener("click", function () { playing ? pauseMedia() : playMedia(); });
+        var fsBtn = document.getElementById("fs");
+        function setPseudo(on) {
+          stage.classList.toggle("is-pseudo-fs", on);
+          fsBtn.textContent = on ? "Exit fullscreen" : "Fullscreen";
+        }
+        fsBtn.addEventListener("click", function () {
+          try {
+            if (stage.classList.contains("is-pseudo-fs")) { setPseudo(false); return; }
+            if (document.fullscreenElement) {
+              var ex = document.exitFullscreen();
+              if (ex && ex.catch) ex.catch(function () {});
+              return;
+            }
+            var req = stage.requestFullscreen ? stage.requestFullscreen() : null;
+            if (req && req.catch) req.catch(function () { setPseudo(true); });
+            else if (!req) setPseudo(true);
+          } catch (err) { setPseudo(true); }
+        });
+        document.getElementById("fs-exit").addEventListener("click", function () { setPseudo(false); });
+        document.addEventListener("fullscreenchange", function () {
+          fsBtn.textContent = document.fullscreenElement ? "Exit fullscreen" : "Fullscreen";
+        });
+        document.addEventListener("keydown", function (e) {
+          if (e.key === "Escape" && stage.classList.contains("is-pseudo-fs")) setPseudo(false);
+        });
+        document.addEventListener("keydown", function (e) {
+          if (document.getElementById("panel-present").hidden) return;
+          var tag = (e.target.tagName || "").toLowerCase();
+          if (tag === "textarea" || tag === "input") return;
+          if (e.key === "ArrowRight" || e.key === "ArrowDown" || e.key === " " || e.key === "PageDown") { e.preventDefault(); next(); }
+          else if (e.key === "ArrowLeft" || e.key === "ArrowUp" || e.key === "PageUp") { e.preventDefault(); prev(); }
+        });
+
+        window.cueGetState = function () { return { slide: current + 1, playing: isPlaying(), black: stage.classList.contains("is-black") }; };
+        window.cueSetState = function (s) {
+          goTo(s.slide);
+          if (s.playing) playMedia(); else pauseMedia();
+          stage.classList.toggle("is-black", !!s.black);
+          syncAudience();
+        };
+        window.cueDeck = {
+          count: function () { return slides.length; },
+          media: mediaSlide,
+          isSample: function () { return isSample; },
+          attached: function () { return attached ? { kind: attached.kind, slide: attached.slide, name: attached.name } : null; },
+          load: loadDeck, sample: useSample, attach: attachMedia, detach: detachMedia
+        };
+
+        // ---------- Deck and media controls ----------
+        var deckFile = document.getElementById("deck-file");
+        var deckName = document.getElementById("deck-name");
+        var deckMsg = document.getElementById("deck-msg");
+        var mediaFile = document.getElementById("media-file");
+        var mediaSlideIn = document.getElementById("media-slide");
+        var mediaRemove = document.getElementById("media-remove");
+        function refreshDeckUI() {
+          var n = slides.length;
+          deckName.textContent = (isSample ? "Sample deck" : "Your deck") + " · " + n + " slides";
+          mediaSlideIn.max = n;
+          if (+mediaSlideIn.value > n) mediaSlideIn.value = n;
+          mediaRemove.disabled = !attached;
+          if (attached) mediaSlideIn.value = attached.slide;
+        }
+        document.addEventListener("cuedeckchange", refreshDeckUI);
+        refreshDeckUI();
+        document.getElementById("deck-load").addEventListener("click", function () { deckFile.click(); });
+        deckFile.addEventListener("change", function () {
+          var n = loadDeck(deckFile.files || []);
+          deckMsg.textContent = n ? "Loaded " + n + " slides, ordered by filename." : "No PNG or JPG images in that selection.";
+          deckFile.value = "";
+        });
+        document.getElementById("deck-sample").addEventListener("click", function () {
+          useSample();
+          deckMsg.textContent = "Back to the built-in six slides.";
+        });
+        document.getElementById("media-attach").addEventListener("click", function () {
+          var n = parseInt(mediaSlideIn.value, 10);
+          if (!(n >= 1 && n <= slides.length)) { deckMsg.textContent = "Pick a slide from 1 to " + slides.length + "."; return; }
+          mediaFile.click();
+        });
+        mediaFile.addEventListener("change", function () {
+          var f = mediaFile.files && mediaFile.files[0];
+          mediaFile.value = "";
+          if (!f) return;
+          if (!/^(video|audio)\//.test(f.type) && !/\.(mp4|webm|mov|m4v|ogv|mp3|m4a|wav|ogg|aac|flac)$/i.test(f.name)) { deckMsg.textContent = "That isn’t a video or audio file."; return; }
+          var a = attachMedia(f, parseInt(mediaSlideIn.value, 10) || 1);
+          deckMsg.textContent = "Attached " + f.name + " to slide " + a.slide + ".";
+        });
+        mediaRemove.addEventListener("click", function () {
+          detachMedia();
+          deckMsg.textContent = "Media removed." + (isSample ? " Play Video uses the sample clip on slide " + canvasSlide() + " again." : "");
+        });
+        window.goTo = goTo; window.next = next; window.prev = prev;
+        window.playMedia = playMedia; window.pauseMedia = pauseMedia; window.toggleBlackout = toggleBlackout;
+      })();
+    </script>
+    <script>
+      (function () {
+        var view = document.getElementById("script-view");
+        var area = document.getElementById("script");
+        var editBtn = document.getElementById("edit-text");
+        var seqBtn = document.getElementById("mode-seq");
+        var anyBtn = document.getElementById("mode-any");
+        var list = document.getElementById("cue-list");
+        var msgEl = document.getElementById("cue-msg");
+        var tb = document.getElementById("cue-toolbar");
+        var tbLabel = document.getElementById("cue-tb-label");
+        var panel = document.getElementById("panel-script");
+        function SLIDES() { return window.cueDeck.count(); }
+        function MEDIA() { return window.cueDeck.media(); }
+        function playWhere() { var m = MEDIA(); return m ? "slide " + m : "no media yet"; }
+
+        var words = [];
+        var triggers = [];
+        var uid = 0;
+        var editing = false;
+        var tbMode = null, pending = null, editId = null;
+        window.cueTriggers = triggers;
+        window.cueSequential = true;
+        window.cueArmed = 0;
+
+        function norm(w) { return w.toLowerCase().replace(/[^\p{L}\p{N}']+/gu, ""); }
+        function cleanPhrase(s) { return s.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, ""); }
+        function tokenize(text) {
+          words = [];
+          var parts = text.replace(/^\s+/, "").split(/(\s+)/);
+          for (var i = 0; i < parts.length; i += 2) {
+            if (parts[i] === "") continue;
+            words.push({ t: parts[i], ws: parts[i + 1] || "" });
+          }
+        }
+        function locate(phrase, from) {
+          var p = phrase.split(/\s+/).map(norm);
+          for (var i = from || 0; i + p.length <= words.length; i++) {
+            var ok = true;
+            for (var j = 0; j < p.length; j++) { if (norm(words[i + j].t) !== p[j]) { ok = false; break; } }
+            if (ok) return i;
+          }
+          return -1;
+        }
+        var COLORS = { next: "", prev: "", goto: "x-cue--orange", play: "x-cue--orange", pause: "x-cue--red", blackout: "x-cue--red" };
+        function chipText(t) {
+          return { next: "▶ Next", prev: "◀ Prev", goto: "→ Slide " + t.slide, play: "▶ Play · " + playWhere(), pause: "❚❚ Pause", blackout: "■ Blackout" }[t.action];
+        }
+        function longText(t) {
+          return { next: "Next slide", prev: "Previous slide", goto: "Go to slide " + t.slide, play: "Play video (" + playWhere() + ")", pause: "Pause media", blackout: "Blackout" }[t.action];
+        }
+        function byId(id) { for (var i = 0; i < triggers.length; i++) if (triggers[i].id === id) return triggers[i]; return null; }
+        function msg(s) { msgEl.textContent = s || ""; }
+
+        function render() {
+          view.textContent = "";
+          var starts = {};
+          triggers.forEach(function (t) { starts[t.start] = t; });
+          var host = view, cur = null;
+          words.forEach(function (w, i) {
+            if (starts[i]) {
+              cur = starts[i];
+              host = document.createElement("span");
+              host.className = "x-cue " + COLORS[cur.action];
+              if (window.cueSequential && triggers.indexOf(cur) === window.cueArmed) host.classList.add("is-armed");
+              host.dataset.id = cur.id;
+              host.tabIndex = 0;
+              host.setAttribute("role", "button");
+              host.setAttribute("aria-label", "Trigger “" + cur.phrase + "”: " + longText(cur) + ". Edit");
+              view.appendChild(host);
+            }
+            var s = document.createElement("span");
+            s.className = "x-w"; s.dataset.i = i; s.textContent = w.t;
+            host.appendChild(s);
+            if (cur && i === cur.end) {
+              var c = document.createElement("span");
+              c.className = "x-cue__chip"; c.setAttribute("aria-hidden", "true"); c.textContent = chipText(cur);
+              host.appendChild(c);
+              host = view; cur = null;
+            }
+            host.appendChild(document.createTextNode(w.ws));
+          });
+        }
+        function renderList() {
+          list.textContent = "";
+          if (!triggers.length) {
+            var e = document.createElement("li");
+            e.innerHTML = '<span class="checklist__item">No triggers yet <small>Select 2 to 5 words in the script.</small></span>';
+            list.appendChild(e);
+            return;
+          }
+          triggers.forEach(function (t, i) {
+            var li = document.createElement("li");
+            var it = document.createElement("span");
+            it.className = "checklist__item";
+            it.textContent = (i + 1) + ". “" + t.phrase + "”";
+            var sm = document.createElement("small");
+            sm.textContent = longText(t);
+            it.appendChild(sm);
+            li.appendChild(it);
+            if (window.cueSequential && i === window.cueArmed) {
+              var c = document.createElement("span");
+              c.className = "chip chip--solid"; c.textContent = "Armed";
+              li.appendChild(c);
+            }
+            list.appendChild(li);
+          });
+        }
+        function commit() {
+          triggers.sort(function (a, b) { return a.start - b.start; });
+          if (window.cueArmed > triggers.length - 1) window.cueArmed = Math.max(0, triggers.length - 1);
+          render();
+          renderList();
+          document.dispatchEvent(new CustomEvent("cuetriggerschange", { detail: triggers }));
+        }
+        function add(phrase, action, slide) {
+          var from = triggers.length ? triggers[triggers.length - 1].end + 1 : 0;
+          var at = locate(phrase, from);
+          if (at < 0) at = locate(phrase, 0);
+          if (at < 0) return;
+          var n = phrase.split(/\s+/).length;
+          triggers.push({ id: ++uid, phrase: phrase, action: action, slide: slide == null ? null : slide, start: at, end: at + n - 1 });
+        }
+
+        window.cueArm = function (i) {
+          window.cueArmed = Math.max(0, Math.min(triggers.length, i));
+          render(); renderList();
+        };
+        window.runCueAction = function (t) {
+          if (!t) return;
+          if (t.action === "next") window.next();
+          else if (t.action === "prev") window.prev();
+          else if (t.action === "goto") window.goTo(t.slide);
+          else if (t.action === "play") { var m = MEDIA(); if (m) { window.goTo(m); window.playMedia(); } }
+          else if (t.action === "pause") window.pauseMedia();
+          else if (t.action === "blackout") window.toggleBlackout();
+        };
+
+        // Toolbar
+        function hideToolbar() { tb.hidden = true; tbMode = null; pending = null; editId = null; }
+        function showToolbar(mode, rect, t) {
+          tbMode = mode;
+          tbLabel.textContent = mode === "add" ? "Add a trigger for “" + pending.phrase + "”" : "Change “" + t.phrase + "”";
+          tb.querySelectorAll("button[data-act]").forEach(function (b) {
+            var a = b.dataset.act;
+            if (a === "remove") b.hidden = mode !== "edit";
+            else if (a !== "cancel") b.setAttribute("aria-pressed", mode === "edit" && t.action === a ? "true" : "false");
+          });
+          tb.hidden = false;
+          var w = tb.offsetWidth;
+          var left = rect.left + window.scrollX + rect.width / 2 - w / 2;
+          left = Math.max(window.scrollX + 8, Math.min(left, window.scrollX + document.documentElement.clientWidth - w - 8));
+          tb.style.left = left + "px";
+          tb.style.top = rect.bottom + window.scrollY + 8 + "px";
+        }
+        function selectedRange() {
+          var sel = window.getSelection();
+          if (!sel || !sel.rangeCount || sel.isCollapsed) return null;
+          var r = sel.getRangeAt(0);
+          if (!view.contains(r.startContainer) || !view.contains(r.endContainer)) return null;
+          var a = -1, b = -1;
+          view.querySelectorAll(".x-w").forEach(function (s) {
+            var tn = s.firstChild;
+            if (!tn) return;
+            if (r.comparePoint(tn, 0) === 1 || r.comparePoint(tn, tn.length) === -1) return;
+            if (r.endContainer === tn && r.endOffset === 0) return;
+            if (r.startContainer === tn && r.startOffset === tn.length) return;
+            var i = +s.dataset.i;
+            if (a < 0) a = i;
+            b = i;
+          });
+          if (a < 0) return null;
+          return { a: a, b: b, rect: r.getBoundingClientRect() };
+        }
+        function handleSelection() {
+          if (editing || panel.hidden) return;
+          var s = selectedRange();
+          if (!s) return;
+          var n = s.b - s.a + 1;
+          if (n < 2) { msg("Pick at least 2 words. A single word is too easy to say by accident."); if (tbMode === "add") hideToolbar(); return; }
+          if (n > 5) { msg("That’s " + n + " words. Keep a trigger to 5 words or fewer so it’s quick to say."); if (tbMode === "add") hideToolbar(); return; }
+          for (var i = 0; i < triggers.length; i++) {
+            if (s.a <= triggers[i].end && s.b >= triggers[i].start) {
+              msg("That overlaps the trigger “" + triggers[i].phrase + "”. Click its highlight to change it.");
+              if (tbMode === "add") hideToolbar();
+              return;
+            }
+          }
+          var phrase = cleanPhrase(words.slice(s.a, s.b + 1).map(function (w) { return w.t; }).join(" "));
+          msg("");
+          pending = { start: s.a, end: s.b, phrase: phrase };
+          editId = null;
+          showToolbar("add", s.rect);
+        }
+        var selTimer = null;
+        document.addEventListener("selectionchange", function () {
+          clearTimeout(selTimer);
+          selTimer = setTimeout(handleSelection, 450);
+        });
+        view.addEventListener("mouseup", function () { clearTimeout(selTimer); setTimeout(handleSelection, 0); });
+        view.addEventListener("touchend", function () { clearTimeout(selTimer); selTimer = setTimeout(handleSelection, 350); });
+
+        function openEdit(mark) {
+          var t = byId(+mark.dataset.id);
+          if (!t) return;
+          pending = null; editId = t.id;
+          showToolbar("edit", mark.getBoundingClientRect(), t);
+          msg("");
+        }
+        view.addEventListener("click", function (e) {
+          var m = e.target.closest(".x-cue");
+          if (!m) return;
+          var sel = window.getSelection();
+          if (sel && !sel.isCollapsed && sel.toString().trim()) return;
+          openEdit(m);
+        });
+        view.addEventListener("keydown", function (e) {
+          var m = e.target.closest && e.target.closest(".x-cue");
+          if (m && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); openEdit(m); }
+        });
+        document.addEventListener("pointerdown", function (e) {
+          if (tb.hidden || tb.contains(e.target)) return;
+          if (e.target.closest && e.target.closest(".x-cue")) return;
+          hideToolbar();
+        });
+        document.addEventListener("keydown", function (e) { if (e.key === "Escape" && !tb.hidden) hideToolbar(); });
+        tb.addEventListener("mousedown", function (e) { e.preventDefault(); });
+        tb.addEventListener("click", function (e) {
+          var b = e.target.closest("button");
+          if (!b) return;
+          var act = b.dataset.act;
+          if (act === "cancel") { hideToolbar(); return; }
+          var t = editId ? byId(editId) : null;
+          if (act === "remove") {
+            if (t) triggers.splice(triggers.indexOf(t), 1);
+            hideToolbar(); commit(); msg("Trigger removed.");
+            return;
+          }
+          var slide = null;
+          if (act === "goto") {
+            var v = window.prompt("Go to which slide? (1–" + SLIDES() + ")", t && t.slide ? t.slide : "");
+            if (v === null) return;
+            slide = parseInt(v, 10);
+            if (!(slide >= 1 && slide <= SLIDES())) { msg("Slide numbers run from 1 to " + SLIDES() + "."); return; }
+          }
+          if (act === "play") slide = MEDIA();
+          if (tbMode === "add" && pending) {
+            triggers.push({ id: ++uid, phrase: pending.phrase, action: act, slide: slide, start: pending.start, end: pending.end });
+          } else if (t) {
+            t.action = act; t.slide = slide;
+          }
+          var sel = window.getSelection();
+          if (sel) sel.removeAllRanges();
+          hideToolbar();
+          commit();
+        });
+
+        // Edit text toggle
+        editBtn.addEventListener("click", function () {
+          hideToolbar();
+          if (!editing) {
+            editing = true;
+            area.value = words.map(function (w) { return w.t + w.ws; }).join("");
+            view.hidden = true; area.hidden = false;
+            editBtn.textContent = "Done editing"; editBtn.setAttribute("aria-pressed", "true");
+            msg("");
+            area.focus();
+            return;
+          }
+          editing = false;
+          tokenize(area.value);
+          var old = triggers.slice(), from = 0, lost = 0;
+          triggers.length = 0;
+          old.forEach(function (t) {
+            var at = locate(t.phrase, from);
+            if (at < 0) { lost++; return; }
+            var n = t.phrase.split(/\s+/).length;
+            t.start = at; t.end = at + n - 1; from = t.end + 1;
+            triggers.push(t);
+          });
+          area.hidden = true; view.hidden = false;
+          editBtn.textContent = "Edit text"; editBtn.setAttribute("aria-pressed", "false");
+          commit();
+          msg(lost ? lost + (lost === 1 ? " trigger no longer matched" : " triggers no longer matched") + " the text and " + (lost === 1 ? "was" : "were") + " removed." : "");
+        });
+
+        // Sequential / any order
+        function setSeq(on) {
+          window.cueSequential = on;
+          seqBtn.setAttribute("aria-pressed", on ? "true" : "false");
+          anyBtn.setAttribute("aria-pressed", on ? "false" : "true");
+          render(); renderList();
+        }
+        seqBtn.addEventListener("click", function () { setSeq(true); });
+        anyBtn.addEventListener("click", function () { setSeq(false); });
+        document.querySelectorAll(".x-tab[role=tab]").forEach(function (t) { t.addEventListener("click", hideToolbar); });
+
+        // Sample script and preloaded triggers
+        tokenize(area.value);
+        add("something every one of us", "next", null);
+        add("show you how this works", "next", null);
+        add("play a short clip", "play", 4);
+        add("my own phrases still", "next", null);
+        add("eyes on the room", "next", null);
+        commit();
+        document.addEventListener("cuedeckchange", function () { render(); renderList(); });
+
+        // Export / import script + triggers
+        document.getElementById("script-export").addEventListener("click", function () {
+          if (editing) editBtn.click();
+          var data = {
+            type: "speakeasy-script", version: 1,
+            text: words.map(function (w) { return w.t + w.ws; }).join(""),
+            sequential: !!window.cueSequential,
+            triggers: triggers.map(function (t) { return { phrase: t.phrase, action: t.action, slide: t.slide, start: t.start }; })
+          };
+          var blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+          var a = document.createElement("a");
+          a.href = URL.createObjectURL(blob); a.download = "speakeasy-script.json";
+          document.body.appendChild(a); a.click(); a.remove();
+          setTimeout(function () { URL.revokeObjectURL(a.href); }, 1000);
+          msg("Exported speakeasy-script.json with " + triggers.length + " triggers.");
+        });
+        var scriptIn = document.getElementById("script-import");
+        document.getElementById("script-import-btn").addEventListener("click", function () { scriptIn.click(); });
+        scriptIn.addEventListener("change", function () {
+          var f = scriptIn.files && scriptIn.files[0];
+          scriptIn.value = "";
+          if (!f) return;
+          var r = new FileReader();
+          r.onload = function () {
+            var d = null;
+            try { d = JSON.parse(r.result); } catch (e) {}
+            if (!d || typeof d.text !== "string" || !Array.isArray(d.triggers)) { msg("That file isn’t a SpeakEasy script export."); return; }
+            hideToolbar();
+            if (editing) {
+              editing = false; area.hidden = true; view.hidden = false;
+              editBtn.textContent = "Edit text"; editBtn.setAttribute("aria-pressed", "false");
+            }
+            area.value = d.text;
+            tokenize(d.text);
+            triggers.length = 0;
+            var lost = 0;
+            d.triggers.forEach(function (t) {
+              if (!t || typeof t.phrase !== "string" || !COLORS.hasOwnProperty(t.action)) { lost++; return; }
+              var n = t.phrase.split(/\s+/).length;
+              var at = typeof t.start === "number" ? locate(t.phrase, t.start) : -1;
+              if (at !== t.start) at = locate(t.phrase, 0);
+              var clash = triggers.some(function (o) { return at <= o.end && at + n - 1 >= o.start; });
+              if (at < 0 || clash) { lost++; return; }
+              triggers.push({ id: ++uid, phrase: t.phrase, action: t.action, slide: t.slide == null ? null : t.slide, start: at, end: at + n - 1 });
+            });
+            window.cueArmed = 0;
+            if (typeof d.sequential === "boolean") setSeq(d.sequential);
+            commit();
+            msg("Imported the script with " + triggers.length + " triggers" + (lost ? "; " + lost + " didn’t match the text and were skipped." : "."));
+          };
+          r.readAsText(f);
+        });
+      })();
+    </script>
+    <div class="x-toast" id="toast" role="status" aria-live="polite"></div>
+    <script>
+      (function () {
+        function SLIDES() { return window.cueDeck.count(); }
+        function MEDIA() { return window.cueDeck.media(); }
+        var ACTIONS = [
+          ["next", "Next slide"], ["prev", "Previous slide"], ["goto", "Go to slide"],
+          ["play", "Go to slide and play video"], ["pause", "Pause media"],
+          ["blackout", "Toggle blackout"], ["undo", "Undo last action"]
+        ];
+        var DEFAULTS = [
+          { phrase: "next slide please", action: "next", slide: null },
+          { phrase: "go back one", action: "prev", slide: null },
+          { phrase: "jump to slide N", action: "goto", slide: null },
+          { phrase: "skip to the video", action: "play", slide: 4 },
+          { phrase: "back to the beginning", action: "goto", slide: 1 },
+          { phrase: "pause that", action: "pause", slide: null },
+          { phrase: "black screen", action: "blackout", slide: null },
+          { phrase: "undo that", action: "undo", slide: null }
+        ];
+        var KEY = "cuespeak.phrases";
+        function copy(a) { return a.map(function (p) { return { phrase: p.phrase, action: p.action, slide: p.slide == null ? null : p.slide }; }); }
+        function valid(a) { return Array.isArray(a) && a.every(function (p) { return p && typeof p.phrase === "string" && ACTIONS.some(function (x) { return x[0] === p.action; }); }); }
+        var stored = null;
+        try { stored = JSON.parse(localStorage.getItem(KEY)); } catch (e) {}
+        window.cuePhrases = valid(stored) ? copy(stored) : copy(DEFAULTS);
+        function save() { try { localStorage.setItem(KEY, JSON.stringify(window.cuePhrases)); } catch (e) {} }
+
+        // ---------- My Phrases table ----------
+        var rows = document.getElementById("phrase-rows");
+        var pmsg = document.getElementById("phrase-msg");
+        function needsSlide(a) { return a === "goto"; }
+        function renderPhrases(focusLast) {
+          rows.textContent = "";
+          window.cuePhrases.forEach(function (p, i) {
+            var tr = document.createElement("tr");
+            var th = document.createElement("th"); th.scope = "row";
+            var inp = document.createElement("input");
+            inp.className = "x-input"; inp.type = "text"; inp.value = p.phrase;
+            inp.setAttribute("aria-label", "Phrase " + (i + 1));
+            inp.placeholder = "Say this…";
+            inp.addEventListener("input", function () { p.phrase = inp.value; save(); });
+            th.appendChild(inp); tr.appendChild(th);
+
+            var td1 = document.createElement("td");
+            var sel = document.createElement("select");
+            sel.className = "x-input"; sel.setAttribute("aria-label", "Action for phrase " + (i + 1));
+            ACTIONS.forEach(function (a) {
+              var o = document.createElement("option"); o.value = a[0]; o.textContent = a[1];
+              if (a[0] === p.action) o.selected = true;
+              sel.appendChild(o);
+            });
+            td1.appendChild(sel); tr.appendChild(td1);
+
+            var td2 = document.createElement("td");
+            var num = document.createElement("input");
+            num.className = "x-input x-input--num"; num.type = "number"; num.min = 1; num.max = SLIDES();
+            num.setAttribute("aria-label", "Slide for phrase " + (i + 1));
+            function syncSlide() {
+              var on = needsSlide(p.action);
+              num.disabled = !on;
+              num.value = on && p.slide ? p.slide : (p.action === "play" && MEDIA() ? MEDIA() : "");
+              num.placeholder = p.action === "goto" ? "N" : "—";
+              num.title = p.action === "play" ? "Follows the attached media" : "";
+            }
+            syncSlide();
+            num.addEventListener("input", function () {
+              var v = parseInt(num.value, 10);
+              p.slide = v >= 1 && v <= SLIDES() ? v : null; save();
+            });
+            sel.addEventListener("change", function () {
+              p.action = sel.value;
+              if (!needsSlide(p.action)) p.slide = null;
+              syncSlide(); save();
+            });
+            td2.appendChild(num); tr.appendChild(td2);
+
+            var td3 = document.createElement("td");
+            var del = document.createElement("button");
+            del.className = "x-small"; del.type = "button"; del.textContent = "Delete";
+            del.setAttribute("aria-label", "Delete phrase " + (i + 1));
+            del.addEventListener("click", function () {
+              window.cuePhrases.splice(window.cuePhrases.indexOf(p), 1);
+              save(); renderPhrases(); pmsg.textContent = "Phrase deleted.";
+            });
+            td3.appendChild(del); tr.appendChild(td3);
+            rows.appendChild(tr);
+            if (focusLast && i === window.cuePhrases.length - 1) setTimeout(function () { inp.focus(); }, 0);
+          });
+        }
+        document.getElementById("phrase-add").addEventListener("click", function () {
+          window.cuePhrases.push({ phrase: "", action: "next", slide: null });
+          save(); renderPhrases(true); pmsg.textContent = "";
+        });
+        document.getElementById("phrase-reset").addEventListener("click", function () {
+          window.cuePhrases.length = 0;
+          Array.prototype.push.apply(window.cuePhrases, copy(DEFAULTS));
+          save(); renderPhrases(); pmsg.textContent = "Phrases reset to the defaults.";
+        });
+        document.getElementById("phrase-export").addEventListener("click", function () {
+          var blob = new Blob([JSON.stringify(window.cuePhrases, null, 2)], { type: "application/json" });
+          var a = document.createElement("a");
+          a.href = URL.createObjectURL(blob); a.download = "speakeasy-phrases.json";
+          document.body.appendChild(a); a.click(); a.remove();
+          setTimeout(function () { URL.revokeObjectURL(a.href); }, 1000);
+          pmsg.textContent = "Exported speakeasy-phrases.json.";
+        });
+        var fileIn = document.getElementById("phrase-import");
+        document.getElementById("phrase-import-btn").addEventListener("click", function () { fileIn.click(); });
+        fileIn.addEventListener("change", function () {
+          var f = fileIn.files && fileIn.files[0];
+          if (!f) return;
+          var r = new FileReader();
+          r.onload = function () {
+            var data = null;
+            try { data = JSON.parse(r.result); } catch (e) {}
+            if (!valid(data)) { pmsg.textContent = "That file isn’t a SpeakEasy phrase export."; return; }
+            window.cuePhrases.length = 0;
+            Array.prototype.push.apply(window.cuePhrases, copy(data));
+            save(); renderPhrases(); pmsg.textContent = "Imported " + data.length + " phrases.";
+          };
+          r.readAsText(f);
+          fileIn.value = "";
+        });
+        renderPhrases();
+
+        // ---------- Undo ----------
+        var undoBtn = document.getElementById("undo");
+        var undoStack = [];
+        function snapshot() {
+          var s = window.cueGetState(); s.armed = window.cueArmed;
+          undoStack.push(s);
+          if (undoStack.length > 50) undoStack.shift();
+          undoBtn.disabled = false;
+        }
+        function undo() {
+          var s = undoStack.pop();
+          undoBtn.disabled = !undoStack.length;
+          if (!s) return false;
+          window.cueSetState(s);
+          if (window.cueSequential && typeof s.armed === "number") window.cueArm(s.armed);
+          updateReadout();
+          return true;
+        }
+        undoBtn.addEventListener("click", function () { if (undo()) toast("↶ Undone"); });
+        ["back", "next", "black"].forEach(function (id) {
+          document.getElementById(id).addEventListener("click", snapshot, true);
+        });
+        document.getElementById("media").addEventListener("click", snapshot, true);
+        document.addEventListener("keydown", function (e) {
+          if (document.getElementById("panel-present").hidden) return;
+          var tag = (e.target.tagName || "").toLowerCase();
+          if (tag === "textarea" || tag === "input" || tag === "select") return;
+          if (["ArrowRight", "ArrowDown", " ", "PageDown", "ArrowLeft", "ArrowUp", "PageUp"].indexOf(e.key) >= 0) snapshot();
+        }, true);
+
+        // ---------- Toast ----------
+        var toastEl = document.getElementById("toast"), toastT = null;
+        function toast(s) {
+          toastEl.textContent = s; toastEl.classList.add("is-on");
+          clearTimeout(toastT);
+          toastT = setTimeout(function () { toastEl.classList.remove("is-on"); }, 2600);
+        }
+        window.cueToast = toast;
+        document.addEventListener("cuedeckchange", function () { renderPhrases(); updateReadout(); });
+
+        // ---------- How to test card ----------
+        var howto = document.getElementById("howto");
+        var HOWTO_KEY = "cuespeak.howto.dismissed";
+        var seen = false;
+        try { seen = localStorage.getItem(HOWTO_KEY) === "1"; } catch (e) {}
+        howto.hidden = seen;
+        document.getElementById("howto-close").addEventListener("click", function () {
+          howto.hidden = true;
+          try { localStorage.setItem(HOWTO_KEY, "1"); } catch (e) {}
+          document.getElementById("howto-open").focus();
+        });
+        document.getElementById("howto-open").addEventListener("click", function () {
+          howto.hidden = !howto.hidden;
+          if (!howto.hidden) howto.scrollIntoView({ block: "nearest", behavior: "smooth" });
+        });
+
+        // ---------- Normalizing ----------
+        var NUMS = { zero: 0, one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10,
+          eleven: 11, twelve: 12, thirteen: 13, fourteen: 14, fifteen: 15, sixteen: 16, seventeen: 17, eighteen: 18, nineteen: 19, twenty: 20 };
+        var SOUNDALIKE = { to: 2, too: 2, for: 4, fore: 4, won: 1, ate: 8 };
+        function normalize(s) {
+          return String(s).toLowerCase().replace(/[’']/g, "").replace(/[^\p{L}\p{N}]+/gu, " ").trim()
+            .split(/\s+/).filter(Boolean).map(function (w) { return NUMS.hasOwnProperty(w) ? String(NUMS[w]) : w; });
+        }
+        function numberOf(w) {
+          if (/^\d+$/.test(w)) return parseInt(w, 10);
+          if (SOUNDALIKE.hasOwnProperty(w)) return SOUNDALIKE[w];
+          return null;
+        }
+
+        // ---------- Rolling buffer ----------
+        // entries: { key, words, final, time, used } ; used = leading words already matched
+        var entries = [];
+        var session = 0, simN = 0;
+        var WINDOW_MS = 10000;
+        function prune() {
+          var now = Date.now();
+          entries = entries.filter(function (e) { return !e.final || now - e.time < WINDOW_MS; });
+        }
+        function upsert(key, text, final) {
+          var e = null;
+          for (var i = 0; i < entries.length; i++) if (entries[i].key === key) { e = entries[i]; break; }
+          if (!e) { e = { key: key, used: 0 }; entries.push(e); }
+          e.raw = text; e.words = normalize(text); e.final = final; e.time = Date.now();
+          if (e.used > e.words.length) e.used = e.words.length;
+        }
+        function buffer() {
+          var b = [];
+          entries.forEach(function (e) {
+            for (var i = e.used; i < e.words.length; i++) b.push({ w: e.words[i], e: e, i: i });
+          });
+          return b;
+        }
+
+        // ---------- Matching ----------
+        function candidates() {
+          var list = [];
+          var trig = window.cueTriggers || [];
+          trig.forEach(function (t, idx) {
+            if (window.cueSequential && idx !== window.cueArmed) return;
+            list.push({ kind: "script", t: t, idx: idx, tokens: normalize(t.phrase) });
+          });
+          window.cuePhrases.forEach(function (p) {
+            var toks = normalize(p.phrase).map(function (w) { return w === "n" ? "#N" : w; });
+            if (toks.length) list.push({ kind: "phrase", p: p, tokens: toks });
+          });
+          return list;
+        }
+        function matchAt(toks, b, s) {
+          var miss = 0, allowed = toks.length >= 3 ? 1 : 0, num = null;
+          for (var j = 0; j < toks.length; j++) {
+            var w = b[s + j].w;
+            if (toks[j] === "#N") {
+              num = numberOf(w);
+              if (num == null) return null;
+              continue;
+            }
+            if (w !== toks[j] && ++miss > allowed) return null;
+          }
+          return { start: s, end: s + toks.length - 1, num: num };
+        }
+        function findBest(b) {
+          var best = null;
+          candidates().forEach(function (c) {
+            var L = c.tokens.length;
+            for (var s = 0; s + L <= b.length; s++) {
+              var m = matchAt(c.tokens, b, s);
+              if (!m) continue;
+              // a spoken "1" or "2" still being heard may grow into 10–20: wait for more
+              if (m.num != null && m.end === b.length - 1 && !b[m.end].e.final && m.num <= 2 && /^\d$/.test(b[m.end].w)) continue;
+              m.c = c;
+              if (!best || m.end < best.end || (m.end === best.end && L > best.c.tokens.length)) best = m;
+              break;
+            }
+          });
+          return best;
+        }
+        function consume(b, m) {
+          var last = b[m.end];
+          for (var k = 0; k <= m.end; k++) {
+            var e = b[k].e;
+            e.used = e === last.e ? last.i + 1 : e.words.length;
+          }
+        }
+
+        var LABEL = { next: "Next Slide", prev: "Previous Slide", pause: "Pause Media", blackout: "Blackout", undo: "Undo" };
+        function fire(m, b) {
+          var heard = b.slice(m.start, m.end + 1).map(function (x) { return x.w; }).join(" ");
+          var c = m.c, action, slide, label;
+          if (c.kind === "script") { action = c.t.action; slide = c.t.slide; }
+          else { action = c.p.action; slide = c.p.slide; if (action === "goto" && !slide) slide = m.num; }
+          if (action === "play") slide = MEDIA();
+          if (action === "goto" && !(slide >= 1 && slide <= SLIDES())) {
+            toast("Slide " + slide + " doesn’t exist (deck has " + SLIDES() + ") — heard “" + heard + "”");
+            return;
+          }
+          if (action === "play" && !slide) {
+            toast("No media to play — attach one under Deck and media. Heard “" + heard + "”");
+            return;
+          }
+          if (action === "goto") label = "Go to Slide " + slide;
+          else if (action === "play") label = "Play Video";
+          else label = LABEL[action];
+          if (action === "undo") {
+            if (!undo()) label = "Nothing to undo";
+          } else {
+            snapshot();
+            window.runCueAction(c.kind === "script" ? c.t : { action: action, slide: slide });
+            if (c.kind === "script" && window.cueSequential) window.cueArm(c.idx + 1);
+          }
+          toast("✓ " + label + " — heard “" + heard + "”");
+          updateReadout();
+        }
+        function process() {
+          prune();
+          for (var guard = 0; guard < 10; guard++) {
+            var b = buffer();
+            var m = findBest(b);
+            if (!m) break;
+            consume(b, m);
+            fire(m, b);
+          }
+          checkNear();
+          showTranscript();
+        }
+        window.cueHear = function (text) { upsert("sim" + (++simN), text, true); process(); };
+
+        // ---------- Readout, near-trigger glow, transcript ----------
+        var readout = document.getElementById("readout");
+        var transcriptEl = document.getElementById("transcript");
+        var nearT = null;
+        function armedTrigger() {
+          var trig = window.cueTriggers || [];
+          return window.cueSequential ? trig[window.cueArmed] || null : null;
+        }
+        function updateReadout() {
+          var trig = window.cueTriggers || [];
+          var t = armedTrigger();
+          if (!trig.length) readout.textContent = "Next trigger: none — add some on the Script tab";
+          else if (!window.cueSequential) readout.textContent = "Next trigger: any of " + trig.length + " script triggers";
+          else if (!t) readout.textContent = "Next trigger: script complete — Undo to re-arm the last one";
+          else readout.textContent = "Next trigger: “" + t.phrase + "”";
+        }
+        function checkNear() {
+          var targets = window.cueSequential ? [armedTrigger()].filter(Boolean) : (window.cueTriggers || []);
+          var b = buffer().map(function (x) { return x.w; });
+          var near = targets.some(function (t) {
+            var toks = normalize(t.phrase);
+            for (var k = Math.min(toks.length - 1, b.length); k >= 1; k--) {
+              var tail = b.slice(b.length - k).join(" ");
+              if (tail === toks.slice(0, k).join(" ")) return true;
+            }
+            return false;
+          });
+          if (near) {
+            readout.classList.add("is-near");
+            clearTimeout(nearT);
+            nearT = setTimeout(function () { readout.classList.remove("is-near"); }, 2500);
+          }
+        }
+        function showTranscript() {
+          var words = [];
+          entries.forEach(function (e) { words = words.concat(String(e.raw || "").trim().split(/\s+/).filter(Boolean)); });
+          transcriptEl.textContent = words.slice(-22).join(" ");
+        }
+        document.addEventListener("cuetriggerschange", updateReadout);
+        setInterval(function () { updateReadout(); prune(); showTranscript(); }, 1000);
+        updateReadout();
+
+        // ---------- Simulate ----------
+        var sim = document.getElementById("simulate");
+        sim.addEventListener("keydown", function (e) {
+          if (e.key !== "Enter") return;
+          e.preventDefault();
+          if (sim.value.trim()) window.cueHear(sim.value);
+          sim.value = "";
+        });
+
+        // ---------- Speech recognition ----------
+        var SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+        var listenBtn = document.getElementById("listen");
+        var statusEl = document.getElementById("mic-status");
+        var banner = document.getElementById("voice-banner");
+        var bannerHead = banner.querySelector(".callout__head");
+        var bannerLead = document.getElementById("voice-lead");
+        var voiceMsg = document.getElementById("voice-msg");
+        var helpEl = document.getElementById("mic-help");
+        var helpMsg = document.getElementById("mic-help-msg");
+        var helpWhy = document.getElementById("mic-help-why");
+        // wanted: the presenter asked to listen. started: recognition onstart actually fired.
+        var rec = null, wanted = false, started = false, lastErr = "", startTimer = null, errCount = 0;
+
+        function setStatus(s) {
+          statusEl.textContent = s;
+          statusEl.classList.toggle("chip--solid", s === "Listening");
+        }
+        function setButton() {
+          listenBtn.textContent = wanted ? "Stop Listening" : "Start Listening";
+          listenBtn.setAttribute("aria-pressed", wanted ? "true" : "false");
+        }
+        function say(s) { voiceMsg.textContent = s || ""; }
+        function showBanner(head, lead) {
+          bannerHead.textContent = head;
+          banner.setAttribute("aria-label", head);
+          bannerLead.textContent = lead;
+          banner.hidden = false;
+        }
+        function clearProblems() { banner.hidden = true; say(""); }
+        function fail(status) {
+          wanted = false; started = false; clearTimeout(startTimer);
+          if (rec) { try { rec.abort(); } catch (e) {} }
+          setStatus(status); setButton();
+        }
+
+        // ---------- Diagnosis ----------
+        function isLockedSandbox() {
+          if (window.origin === "null" || !window.isSecureContext) return true;
+          try { if (location.origin === "null") return true; } catch (e) { return true; }
+          try {
+            var pol = document.permissionsPolicy || document.featurePolicy;
+            if (pol && typeof pol.allowsFeature === "function" && !pol.allowsFeature("microphone")) return true;
+          } catch (e) {}
+          return false;
+        }
+        var SANDBOX_MSG = "This copy is running in a locked sandbox that blocks microphones. Open the standalone SpeakEasy link or file to use voice. Simulate speech still works.";
+        var UNSUPPORTED_MSG = "This browser doesn't support voice recognition. Use Chrome or Edge.";
+        function micPermission() {
+          try {
+            if (!navigator.permissions || !navigator.permissions.query) return Promise.resolve("unknown");
+            return navigator.permissions.query({ name: "microphone" })
+              .then(function (r) { return r.state; }, function () { return "unknown"; });
+          } catch (e) { return Promise.resolve("unknown"); }
+        }
+        function denied() {
+          fail("Mic blocked");
+          say("Microphone access is blocked. Follow Mic help below.");
+          openHelp(true);
+        }
+
+        // ---------- Recognition ----------
+        function dropInterim() { entries = entries.filter(function (e) { return e.final; }); }
+        function makeRec() {
+          rec = new SR();
+          rec.continuous = true; rec.interimResults = true; rec.lang = "en-US";
+          rec.onstart = function () {
+            started = true; clearTimeout(startTimer);
+            if (!wanted) { try { rec.stop(); } catch (e) {} return; }
+            setStatus("Listening");
+            banner.hidden = true;
+            if (!lastErr) say("");
+          };
+          rec.onresult = function (ev) {
+            lastErr = ""; errCount = 0; say("");
+            for (var i = ev.resultIndex; i < ev.results.length; i++) {
+              upsert("s" + session + ":" + i, ev.results[i][0].transcript, ev.results[i].isFinal);
+            }
+            process();
+          };
+          rec.onerror = function (ev) {
+            var err = ev && ev.error;
+            if (err === "aborted") return;
+            lastErr = err || "unknown";
+            if (err === "not-allowed" || err === "service-not-allowed") {
+              if (isLockedSandbox()) { fail("Blocked"); showBanner("Microphone blocked here", SANDBOX_MSG); }
+              else denied();
+              return;
+            }
+            errCount++;
+            if (err === "no-speech") { say("No speech heard — still listening."); return; }
+            if (err === "audio-capture") { setStatus("No mic"); say("No microphone found — plug one in or check another app isn't using it. Retrying…"); return; }
+            if (err === "network") { setStatus("Offline"); say("Speech service unreachable — check your connection. Retrying…"); return; }
+            setStatus("Error"); say("Voice stopped (" + lastErr + "). Retrying…");
+          };
+          rec.onend = function () {
+            started = false;
+            session++;
+            dropInterim();
+            if (wanted) {
+              if (lastErr && lastErr !== "no-speech") setStatus("Reconnecting");
+              var delay = lastErr && lastErr !== "no-speech" ? Math.min(1000 * errCount, 5000) : 250;
+              setTimeout(function () { if (wanted && !started) beginRec(); }, delay);
+            } else if (statusEl.textContent === "Listening" || statusEl.textContent === "Starting") {
+              setStatus("Paused");
+            }
+          };
+        }
+        function beginRec() {
+          if (!rec) makeRec();
+          if (statusEl.textContent !== "Listening") setStatus(lastErr ? statusEl.textContent : "Starting");
+          clearTimeout(startTimer);
+          startTimer = setTimeout(function () {
+            if (wanted && !started) {
+              fail("Not listening");
+              say("Voice didn't start. The microphone may be blocked — see Mic help.");
+            }
+          }, 6000);
+          try { rec.start(); }
+          catch (e) {
+            if (/already/i.test(String(e && e.message))) return;
+            if (isLockedSandbox()) { fail("Blocked"); showBanner("Microphone blocked here", SANDBOX_MSG); return; }
+            fail("Not listening");
+            say("Voice couldn't start: " + (e && e.message ? e.message : "unknown error") + ".");
+          }
+        }
+        function startRec() {
+          clearProblems();
+          lastErr = ""; errCount = 0;
+          if (isLockedSandbox()) { fail("Blocked"); showBanner("Microphone blocked here", SANDBOX_MSG); return; }
+          if (!SR) { fail("Unsupported"); showBanner("Voice unavailable", UNSUPPORTED_MSG); return; }
+          wanted = true; setButton(); setStatus("Starting");
+          micPermission().then(function (state) {
+            if (!wanted) return;
+            if (state === "denied") { denied(); return; }
+            beginRec();
+          });
+        }
+        function stopRec() {
+          wanted = false; clearTimeout(startTimer); setButton();
+          if (rec) { try { rec.stop(); } catch (e) {} }
+          lastErr = ""; say("");
+          setStatus("Paused");
+        }
+        listenBtn.addEventListener("click", function () { wanted ? stopRec() : startRec(); });
+        setStatus("Paused"); setButton();
+
+        // ---------- Mic help ----------
+        var ua = navigator.userAgent || "";
+        var isIOS = /iPhone|iPad|iPod/i.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1);
+        var isAndroid = /Android/i.test(ua);
+        var platform = isIOS ? "ios" : isAndroid ? "android" : "desktop";
+        var isEdge = /Edg\//.test(ua);
+        var os = !isIOS && /Macintosh|Mac OS X/.test(ua) ? "mac" : /Windows/.test(ua) ? "win" : "";
+        helpEl.querySelectorAll("[data-platform]").forEach(function (el) { el.hidden = el.getAttribute("data-platform") !== platform; });
+        helpEl.querySelectorAll("[data-os]").forEach(function (el) { el.hidden = el.getAttribute("data-os") !== os; });
+        var urlEl = document.getElementById("mic-settings-url");
+        if (isEdge) {
+          urlEl.textContent = "edge://settings/content/microphone";
+          document.getElementById("mic-desktop-label").textContent = "Desktop · Edge";
+        }
+        function openHelp(fromDenied) {
+          document.getElementById("strip").open = true;
+          helpWhy.textContent = fromDenied
+            ? "The microphone is blocked for this page. Allow it with the steps below, then tap Try again."
+            : "If the microphone is blocked, follow these steps, then tap Try again.";
+          helpMsg.textContent = "";
+          helpEl.hidden = false;
+          helpEl.focus({ preventScroll: true });
+          helpEl.scrollIntoView({ block: "nearest", behavior: "smooth" });
+        }
+        function closeHelp() { helpEl.hidden = true; document.getElementById("mic-help-link").focus(); }
+        document.getElementById("mic-help-link").addEventListener("click", function (e) {
+          e.preventDefault();
+          helpEl.hidden ? openHelp(false) : closeHelp();
+        });
+        document.getElementById("mic-help-close").addEventListener("click", closeHelp);
+        helpEl.addEventListener("keydown", function (e) { if (e.key === "Escape") closeHelp(); });
+
+        document.getElementById("mic-copy").addEventListener("click", function () {
+          var btn = this, text = urlEl.textContent;
+          function done(ok) {
+            btn.textContent = ok ? "Copied" : "Select and copy";
+            setTimeout(function () { btn.textContent = "Copy"; }, 1800);
+          }
+          function fallback() {
+            try {
+              var r = document.createRange(); r.selectNodeContents(urlEl);
+              var s = window.getSelection(); s.removeAllRanges(); s.addRange(r);
+              done(document.execCommand("copy"));
+            } catch (e) { done(false); }
+          }
+          if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(function () { done(true); }, fallback);
+          else fallback();
+        });
+
+        document.getElementById("mic-retry").addEventListener("click", function () {
+          if (isLockedSandbox()) { helpMsg.textContent = SANDBOX_MSG; return; }
+          if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+            helpMsg.textContent = "This browser can't request the microphone here. Use Chrome or Edge.";
+            return;
+          }
+          helpMsg.textContent = "Asking for the microphone…";
+          navigator.mediaDevices.getUserMedia({ audio: true }).then(function (stream) {
+            stream.getTracks().forEach(function (t) { t.stop(); });
+            helpMsg.textContent = "Microphone allowed. Starting to listen…";
+            if (!SR) { showBanner("Voice unavailable", UNSUPPORTED_MSG); return; }
+            if (wanted) stopRec();
+            setTimeout(function () { startRec(); if (wanted) helpEl.hidden = true; }, 300);
+          }, function (err) {
+            var name = err && err.name;
+            if (name === "NotAllowedError" || name === "SecurityError") {
+              helpMsg.textContent = "Still blocked. Follow the steps above, reload if asked, then tap Try again.";
+              fail("Mic blocked");
+            } else if (name === "NotFoundError" || name === "OverconstrainedError") {
+              helpMsg.textContent = "No microphone found — plug one in and try again.";
+            } else if (name === "NotReadableError") {
+              helpMsg.textContent = "The microphone is busy in another app — close it and try again.";
+            } else {
+              helpMsg.textContent = "Couldn't reach the microphone (" + (name || "unknown error") + ").";
+            }
+          });
+        });
+      })();
+    </script>
+  
+
+<script>(function(){function c(){var b=a.contentDocument||(a.contentWindow&&a.contentWindow.document);if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a476b50df96f5c9d',t:'MTc5MTQ3ODg4Mw=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body></html>
