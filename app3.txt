@@ -1,10 +1,4 @@
-='speakeasy-slide')return;" +
-            "b.style.display=d.black?'block':'none';document.title='SpeakEasy · Slide '+d.n+' of '+d.total;" +
-            "var key=d.n+'|'+(d.html||'')+'|'+(d.img&&d.img.slice(0,5)==='blob:'?d.img:'');" +
-            "if(d.img){var im=s.querySelector('img');if(!im||key!==last){s.className='img';s.innerHTML='';im=document.createElement('img');im.alt='Slide '+d.n;s.appendChild(im);}if(im.getAttribute('src')!==d.img)im.setAttribute('src',d.img);}" +
-            "else if(key!==last){s.className='';s.innerHTML=d.html||'';}last=key;" +
-            "if(d.media){if(!m||m.getAttribute('src')!==d.media.src){if(m)m.remove();m=document.createElement(d.media.kind);m.id='m';m.className=d.media.kind;m.muted=true;m.playsInline=true;m.setAttribute('src',d.media.src);document.body.appendChild(m);}" +
-            "if(Math.abs(m.currentTime-d.media.time)>0.4)m.currentTime=d.media.time;if(d.media.playing){var p=m.play();if(p&&p.catch)p.catch(function(){});}else m.pause();}" +
+me-d.media.time)>0.4)m.currentTime=d.media.time;if(d.media.playing){var p=m.play();if(p&&p.catch)p.catch(function(){});}else m.pause();}" +
             "else if(m){m.remove();m=null;}});" +
             "<\/script></body></html>";
         }
@@ -238,7 +232,7 @@
         }
         function commit() {
           triggers.sort(function (a, b) { return a.start - b.start; });
-          if (window.cueArmed > triggers.length - 1) window.cueArmed = Math.max(0, triggers.length - 1);
+          window.cueArmed = 0; triggers.forEach(function (x) { x.spent = false; });
           render();
           renderList();
           document.dispatchEvent(new CustomEvent("cuetriggerschange", { detail: triggers }));
@@ -261,6 +255,7 @@
           if (t.action === "next") window.next();
           else if (t.action === "prev") window.prev();
           else if (t.action === "goto") window.goTo(t.slide);
+          else if (t.action === "last") window.goTo(window.cueDeck.count());
           else if (t.action === "play") { var m = MEDIA(); if (m) { window.goTo(m); window.playMedia(); } }
           else if (t.action === "pause") window.pauseMedia();
           else if (t.action === "blackout") window.toggleBlackout();
@@ -417,6 +412,7 @@
         // Sequential / any order
         function setSeq(on) {
           window.cueSequential = on;
+          window.cueArmed = 0; triggers.forEach(function (x) { x.spent = false; });
           seqBtn.setAttribute("aria-pressed", on ? "true" : "false");
           anyBtn.setAttribute("aria-pressed", on ? "false" : "true");
           render(); renderList();
@@ -497,7 +493,7 @@
         var ACTIONS = [
           ["next", "Next slide"], ["prev", "Previous slide"], ["goto", "Go to slide"],
           ["play", "Go to slide and play video"], ["pause", "Pause media"],
-          ["blackout", "Toggle blackout"], ["undo", "Undo last action"]
+          ["last", "Go to last slide"], ["blackout", "Toggle blackout"], ["undo", "Undo last action"]
         ];
         var DEFAULTS = [
           { phrase: "next slide please", action: "next", slide: null },
@@ -505,11 +501,12 @@
           { phrase: "jump to slide N", action: "goto", slide: null },
           { phrase: "skip to the video", action: "play", slide: 4 },
           { phrase: "back to the beginning", action: "goto", slide: 1 },
+          { phrase: "skip to the end", action: "last", slide: null },
           { phrase: "pause that", action: "pause", slide: null },
           { phrase: "black screen", action: "blackout", slide: null },
           { phrase: "undo that", action: "undo", slide: null }
         ];
-        var KEY = "cuespeak.phrases";
+        var KEY = "speakeasy.phrases.v2";
         function copy(a) { return a.map(function (p) { return { phrase: p.phrase, action: p.action, slide: p.slide == null ? null : p.slide }; }); }
         function valid(a) { return Array.isArray(a) && a.every(function (p) { return p && typeof p.phrase === "string" && ACTIONS.some(function (x) { return x[0] === p.action; }); }); }
         var stored = null;
@@ -637,12 +634,15 @@
         ["back", "next", "black"].forEach(function (id) {
           document.getElementById(id).addEventListener("click", snapshot, true);
         });
+        ["back", "next"].forEach(function (id) {
+          document.getElementById(id).addEventListener("click", function () { lastNav = Date.now(); }, true);
+        });
         document.getElementById("media").addEventListener("click", snapshot, true);
         document.addEventListener("keydown", function (e) {
           if (document.getElementById("panel-present").hidden) return;
           var tag = (e.target.tagName || "").toLowerCase();
           if (tag === "textarea" || tag === "input" || tag === "select") return;
-          if (["ArrowRight", "ArrowDown", " ", "PageDown", "ArrowLeft", "ArrowUp", "PageUp"].indexOf(e.key) >= 0) snapshot();
+          if (["ArrowRight", "ArrowDown", " ", "PageDown", "ArrowLeft", "ArrowUp", "PageUp"].indexOf(e.key) >= 0) { snapshot(); lastNav = Date.now(); }
         }, true);
 
         // ---------- Toast ----------
@@ -697,8 +697,23 @@
         function upsert(key, text, final) {
           var e = null;
           for (var i = 0; i < entries.length; i++) if (entries[i].key === key) { e = entries[i]; break; }
+          var isNew = !e;
           if (!e) { e = { key: key, used: 0 }; entries.push(e); }
-          e.raw = text; e.words = normalize(text); e.final = final; e.time = Date.now();
+          var nw = normalize(text);
+          if (!isNew && e.final && Date.now() - e.time > 1500) { e.used = 0; }
+          else if (!isNew && e.used) {
+            // same slot, different words (a revision or a reused result index): only keep what still matches
+            var kk = 0; while (kk < e.used && kk < nw.length && e.words[kk] === nw[kk]) kk++;
+            e.used = kk;
+          }
+          e.raw = text; e.words = nw; e.final = final; e.time = Date.now();
+          if (isNew) {
+            entries.forEach(function (o) {
+              if (o === e || !o.words || !o.words.length || Date.now() - o.time > 2500) return;
+              var k = 0; while (k < o.words.length && k < e.words.length && o.words[k] === e.words[k]) k++;
+              if (k === o.words.length || k >= 3) { e.used = Math.max(e.used, Math.min(o.used, k)); if (k === o.words.length) o.used = o.words.length; }
+            });
+          }
           if (e.used > e.words.length) e.used = e.words.length;
         }
         function buffer() {
@@ -714,17 +729,21 @@
           var list = [];
           var trig = window.cueTriggers || [];
           trig.forEach(function (t, idx) {
-            if (window.cueSequential && idx !== window.cueArmed) return;
+            if (window.cueSequential && idx !== window.cueArmed && idx !== window.cueArmed + 1) return;
+            if (!window.cueSequential && t.spent) return;
+            if (coolingDown("s" + t.id)) return;
             list.push({ kind: "script", t: t, idx: idx, tokens: normalize(t.phrase) });
           });
           window.cuePhrases.forEach(function (p) {
             var toks = normalize(p.phrase).map(function (w) { return w === "n" ? "#N" : w; });
-            if (toks.length) list.push({ kind: "phrase", p: p, tokens: toks });
+            if (toks.length && !coolingDown("p" + p.phrase)) list.push({ kind: "phrase", p: p, tokens: toks });
           });
           return list;
         }
-        function matchAt(toks, b, s) {
-          var miss = 0, allowed = toks.length >= 3 ? 1 : 0, num = null;
+        var lastFired = {}, lastNav = 0;
+        function coolingDown(key) { return lastFired[key] && Date.now() - lastFired[key] < 3000; }
+        function matchAt(toks, b, s, kind) {
+          var miss = 0, allowed = kind === "script" && toks.length >= 4 ? 1 : 0, num = null;
           for (var j = 0; j < toks.length; j++) {
             var w = b[s + j].w;
             if (toks[j] === "#N") {
@@ -732,7 +751,7 @@
               if (num == null) return null;
               continue;
             }
-            if (w !== toks[j] && ++miss > allowed) return null;
+            if (w !== toks[j] && (j === 0 || j === toks.length - 1 || ++miss > allowed)) return null;
           }
           return { start: s, end: s + toks.length - 1, num: num };
         }
@@ -741,7 +760,7 @@
           candidates().forEach(function (c) {
             var L = c.tokens.length;
             for (var s = 0; s + L <= b.length; s++) {
-              var m = matchAt(c.tokens, b, s);
+              var m = matchAt(c.tokens, b, s, c.kind);
               if (!m) continue;
               // a spoken "1" or "2" still being heard may grow into 10–20: wait for more
               if (m.num != null && m.end === b.length - 1 && !b[m.end].e.final && m.num <= 2 && /^\d$/.test(b[m.end].w)) continue;
@@ -766,7 +785,10 @@
           var c = m.c, action, slide, label;
           if (c.kind === "script") { action = c.t.action; slide = c.t.slide; }
           else { action = c.p.action; slide = c.p.slide; if (action === "goto" && !slide) slide = m.num; }
+          if (action === "last") { action = "goto"; slide = SLIDES(); }
           if (action === "play") slide = MEDIA();
+          lastFired[c.kind === "script" ? "s" + c.t.id : "p" + c.p.phrase] = Date.now();
+          if ((action === "next" || action === "prev") && Date.now() - lastNav < 1200) return;
           if (action === "goto" && !(slide >= 1 && slide <= SLIDES())) {
             toast("Slide " + slide + " doesn’t exist (deck has " + SLIDES() + ") — heard “" + heard + "”");
             return;
@@ -783,7 +805,9 @@
           } else {
             snapshot();
             window.runCueAction(c.kind === "script" ? c.t : { action: action, slide: slide });
-            if (c.kind === "script" && window.cueSequential) window.cueArm(c.idx + 1);
+            if (action === "next" || action === "prev") lastNav = Date.now();
+            if (c.kind === "script") { c.t.spent = true; if (window.cueSequential) window.cueArm(c.idx + 1); }
+            if (c.kind === "phrase" && action === "goto" && slide === 1 && window.cueSequential) { window.cueArm(0); (window.cueTriggers || []).forEach(function (x) { x.spent = false; }); }
           }
           toast("✓ " + label + " — heard “" + heard + "”");
           updateReadout();
@@ -1080,4 +1104,4 @@
     </script>
   
 
-<script>(function(){function c(){var b=a.contentDocument||(a.contentWindow&&a.contentWindow.document);if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a476b50df96f5c9d',t:'MTc5MTQ3ODg4Mw=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body></html>
+</body></html>
