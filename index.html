@@ -1,0 +1,3 @@
+<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>SpeakEasy 1.0 Demo</title></head><body style="background:#111;color:#ccc;font-family:sans-serif"><p id="l">Loading SpeakEasy 1.0 demo...</p><script>
+Promise.all(["app1.txt","app2.txt","app3.txt"].map(function(f){return fetch(f,{cache:"no-cache"}).then(function(r){if(!r.ok)throw f;return r.text()})})).then(function(p){document.open();document.write(p.join(""));document.close();}).catch(function(e){document.getElementById("l").textContent="Could not load "+e+". Please reload.";});
+</script></body></html>
