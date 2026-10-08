@@ -1,31 +1,4 @@
-me-d.media.time)>0.4)m.currentTime=d.media.time;if(d.media.playing){var p=m.play();if(p&&p.catch)p.catch(function(){});}else m.pause();}" +
-            "else if(m){m.remove();m=null;}});" +
-            "<\/script></body></html>";
-        }
-        function openAudience() {
-          if (audienceOpen()) { audience.focus(); syncAudience(); return true; }
-          var w = null;
-          try { w = window.open("", "speakeasy-audience", "popup=yes,width=1280,height=720"); } catch (e) { w = null; }
-          if (!w) return false;
-          try {
-            w.document.open(); w.document.write(audienceDoc()); w.document.close();
-          } catch (e) { try { w.close(); } catch (x) {} return false; }
-          audience = w;
-          setTimeout(syncAudience, 50);
-          syncAudience();
-          return true;
-        }
-        document.getElementById("audience").addEventListener("click", function () {
-          if (openAudience()) { if (window.cueToast) window.cueToast("Audience window open — drag it to the projector"); return; }
-          if (window.cueToast) window.cueToast("Pop-ups are blocked — showing the slides fullscreen instead");
-          if (!document.fullscreenElement && !stage.classList.contains("is-pseudo-fs")) fsBtn.click();
-        });
-        window.addEventListener("beforeunload", function () { if (audienceOpen()) audience.close(); });
-
-        document.getElementById("back").addEventListener("click", prev);
-        document.getElementById("next").addEventListener("click", next);
-        document.getElementById("black").addEventListener("click", toggleBlackout);
-        canvas.addEventListener("click", function () { playing ? pauseMedia() : playMedia(); });
+Media(); });
         var fsBtn = document.getElementById("fs");
         function setPseudo(on) {
           stage.classList.toggle("is-pseudo-fs", on);
@@ -276,7 +249,7 @@ me-d.media.time)>0.4)m.currentTime=d.media.time;if(d.media.playing){var p=m.play
           var left = rect.left + window.scrollX + rect.width / 2 - w / 2;
           left = Math.max(window.scrollX + 8, Math.min(left, window.scrollX + document.documentElement.clientWidth - w - 8));
           tb.style.left = left + "px";
-          tb.style.top = rect.bottom + window.scrollY + 8 + "px";
+          tb.style.top = rect.bottom + window.scrollY + (("ontouchstart" in window) ? 30 : 8) + "px";
         }
         function selectedRange() {
           var sel = window.getSelection();
@@ -647,6 +620,7 @@ me-d.media.time)>0.4)m.currentTime=d.media.time;if(d.media.playing){var p=m.play
 
         // ---------- Toast ----------
         var toastEl = document.getElementById("toast"), toastT = null;
+        document.addEventListener("cueplayblocked", function () { toast("This browser blocked autoplay. Tap the video once to play it."); });
         function toast(s) {
           toastEl.textContent = s; toastEl.classList.add("is-on");
           clearTimeout(toastT);
@@ -688,6 +662,7 @@ me-d.media.time)>0.4)m.currentTime=d.media.time;if(d.media.playing){var p=m.play
         // ---------- Rolling buffer ----------
         // entries: { key, words, final, time, used } ; used = leading words already matched
         var entries = [];
+        var IOS_DEDUPE = /iPhone|iPad|iPod/i.test(navigator.userAgent || "") || (/Macintosh/.test(navigator.userAgent || "") && navigator.maxTouchPoints > 1);
         var session = 0, simN = 0;
         var WINDOW_MS = 10000;
         function prune() {
@@ -707,9 +682,20 @@ me-d.media.time)>0.4)m.currentTime=d.media.time;if(d.media.playing){var p=m.play
             e.used = kk;
           }
           e.raw = text; e.words = nw; e.final = final; e.time = Date.now();
+          if (isNew && IOS_DEDUPE && key.charAt(0) === "s") {
+            // Safari can re-send the whole session so far as one new result: skip the earlier results it repeats
+            var sess = key.split(":")[0], pos = 0, prior = entries.filter(function (o) { return o !== e && o.key.split(":")[0] === sess && o.words && o.words.length; });
+            prior.forEach(function (o) {
+              var L = o.words.length, ok = pos + L <= e.words.length;
+              for (var q = 0; ok && q < L; q++) if (e.words[pos + q] !== o.words[q]) ok = false;
+              if (ok) pos += L;
+            });
+            if (pos) e.used = Math.max(e.used, pos);
+          }
           if (isNew) {
             entries.forEach(function (o) {
-              if (o === e || !o.words || !o.words.length || Date.now() - o.time > 2500) return;
+              var sameSession = IOS_DEDUPE && o.key.split(":")[0] === e.key.split(":")[0] && o.key.charAt(0) === "s" && o.key !== e.key;
+              if (o === e || !o.words || !o.words.length || (!sameSession && Date.now() - o.time > 2500)) return;
               var k = 0; while (k < o.words.length && k < e.words.length && o.words[k] === e.words[k]) k++;
               if (k === o.words.length || k >= 3) { e.used = Math.max(e.used, Math.min(o.used, k)); if (k === o.words.length) o.used = o.words.length; }
             });
@@ -924,7 +910,12 @@ me-d.media.time)>0.4)m.currentTime=d.media.time;if(d.media.playing){var p=m.play
           return false;
         }
         var SANDBOX_MSG = "This copy is running in a locked sandbox that blocks microphones. Open the standalone SpeakEasy link or file to use voice. Simulate speech still works.";
-        var UNSUPPORTED_MSG = "This browser doesn't support voice recognition. Use Chrome or Edge.";
+        var UA0 = navigator.userAgent || "";
+        var IOS0 = /iPhone|iPad|iPod/i.test(UA0) || (/Macintosh/.test(UA0) && navigator.maxTouchPoints > 1);
+        var IOS_OTHER = IOS0 && /CriOS|FxiOS|EdgiOS|OPiOS|GSA\//.test(UA0);
+        var UNSUPPORTED_MSG = IOS_OTHER ? "On iPhone and iPad, voice only works in Safari. Copy this link and open it in Safari."
+          : IOS0 ? "Voice recognition needs iOS 14.5 or later in Safari. Update iOS, or use Simulate speech."
+          : "This browser doesn't support voice recognition. Use Chrome or Edge.";
         function micPermission() {
           try {
             if (!navigator.permissions || !navigator.permissions.query) return Promise.resolve("unknown");
@@ -944,7 +935,7 @@ me-d.media.time)>0.4)m.currentTime=d.media.time;if(d.media.playing){var p=m.play
           rec = new SR();
           rec.continuous = true; rec.interimResults = true; rec.lang = "en-US";
           rec.onstart = function () {
-            started = true; clearTimeout(startTimer);
+            started = true; everListened = true; clearTimeout(startTimer);
             if (!wanted) { try { rec.stop(); } catch (e) {} return; }
             setStatus("Listening");
             banner.hidden = true;
@@ -961,6 +952,17 @@ me-d.media.time)>0.4)m.currentTime=d.media.time;if(d.media.playing){var p=m.play
             var err = ev && ev.error;
             if (err === "aborted") return;
             lastErr = err || "unknown";
+            if (IOS0 && err === "not-allowed" && everListened) {
+              wanted = false; setButton(); fail("Paused");
+              say("Your iPhone paused the microphone. Tap Start Listening to resume.");
+              return;
+            }
+            if (IOS0 && err === "service-not-allowed") {
+              fail("Dictation off");
+              say("Speech recognition is off on this iPhone. Turn on Dictation (see Mic help), then tap Start Listening.");
+              openHelp(true);
+              return;
+            }
             if (err === "not-allowed" || err === "service-not-allowed") {
               if (isLockedSandbox()) { fail("Blocked"); showBanner("Microphone blocked here", SANDBOX_MSG); }
               else denied();
@@ -1007,15 +1009,32 @@ me-d.media.time)>0.4)m.currentTime=d.media.time;if(d.media.playing){var p=m.play
           clearProblems();
           lastErr = ""; errCount = 0;
           if (isLockedSandbox()) { fail("Blocked"); showBanner("Microphone blocked here", SANDBOX_MSG); return; }
-          if (!SR) { fail("Unsupported"); showBanner("Voice unavailable", UNSUPPORTED_MSG); return; }
+          if (!SR) {
+            fail("Unsupported"); showBanner("Voice unavailable", UNSUPPORTED_MSG);
+            if (IOS_OTHER && navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(location.href).then(function () { say("Link copied. Open Safari and paste it in the address bar."); }, function () {});
+            return;
+          }
           wanted = true; setButton(); setStatus("Starting");
+          if (window.cueUnlockMedia) window.cueUnlockMedia();
+          keepAwake(true);
+          if (IOS0) { beginRec(); return; }
           micPermission().then(function (state) {
             if (!wanted) return;
             if (state === "denied") { denied(); return; }
             beginRec();
           });
         }
+        var everListened = false;
+        var wakeLock = null;
+        function keepAwake(on) {
+          try {
+            if (on && navigator.wakeLock && !wakeLock) navigator.wakeLock.request("screen").then(function (l) { wakeLock = l; l.addEventListener("release", function () { wakeLock = null; }); }, function () {});
+            if (!on && wakeLock) { wakeLock.release(); wakeLock = null; }
+          } catch (e) {}
+        }
+        document.addEventListener("visibilitychange", function () { if (document.visibilityState === "visible" && wanted) keepAwake(true); });
         function stopRec() {
+          keepAwake(false);
           wanted = false; clearTimeout(startTimer); setButton();
           if (rec) { try { rec.stop(); } catch (e) {} }
           lastErr = ""; say("");
