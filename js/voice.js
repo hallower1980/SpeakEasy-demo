@@ -1,465 +1,4 @@
-Media(); });
-        var fsBtn = document.getElementById("fs");
-        function setPseudo(on) {
-          stage.classList.toggle("is-pseudo-fs", on);
-          fsBtn.textContent = on ? "Exit fullscreen" : "Fullscreen";
-        }
-        fsBtn.addEventListener("click", function () {
-          try {
-            if (stage.classList.contains("is-pseudo-fs")) { setPseudo(false); return; }
-            if (document.fullscreenElement) {
-              var ex = document.exitFullscreen();
-              if (ex && ex.catch) ex.catch(function () {});
-              return;
-            }
-            var req = stage.requestFullscreen ? stage.requestFullscreen() : null;
-            if (req && req.catch) req.catch(function () { setPseudo(true); });
-            else if (!req) setPseudo(true);
-          } catch (err) { setPseudo(true); }
-        });
-        document.getElementById("fs-exit").addEventListener("click", function () { setPseudo(false); });
-        document.addEventListener("fullscreenchange", function () {
-          fsBtn.textContent = document.fullscreenElement ? "Exit fullscreen" : "Fullscreen";
-        });
-        document.addEventListener("keydown", function (e) {
-          if (e.key === "Escape" && stage.classList.contains("is-pseudo-fs")) setPseudo(false);
-        });
-        document.addEventListener("keydown", function (e) {
-          if (document.getElementById("panel-present").hidden) return;
-          var tag = (e.target.tagName || "").toLowerCase();
-          if (tag === "textarea" || tag === "input") return;
-          if (e.key === "ArrowRight" || e.key === "ArrowDown" || e.key === " " || e.key === "PageDown") { e.preventDefault(); next(); }
-          else if (e.key === "ArrowLeft" || e.key === "ArrowUp" || e.key === "PageUp") { e.preventDefault(); prev(); }
-        });
-
-        window.cueGetState = function () { return { slide: current + 1, playing: isPlaying(), black: stage.classList.contains("is-black") }; };
-        window.cueSetState = function (s) {
-          goTo(s.slide);
-          if (s.playing) playMedia(); else pauseMedia();
-          stage.classList.toggle("is-black", !!s.black);
-          syncAudience();
-        };
-        window.cueDeck = {
-          count: function () { return slides.length; },
-          media: mediaSlide,
-          isSample: function () { return isSample; },
-          attached: function () { return attached ? { kind: attached.kind, slide: attached.slide, name: attached.name } : null; },
-          load: loadDeck, sample: useSample, attach: attachMedia, detach: detachMedia
-        };
-
-        // ---------- Deck and media controls ----------
-        var deckFile = document.getElementById("deck-file");
-        var deckName = document.getElementById("deck-name");
-        var deckMsg = document.getElementById("deck-msg");
-        var mediaFile = document.getElementById("media-file");
-        var mediaSlideIn = document.getElementById("media-slide");
-        var mediaRemove = document.getElementById("media-remove");
-        function refreshDeckUI() {
-          var n = slides.length;
-          deckName.textContent = (isSample ? "Sample deck" : "Your deck") + " · " + n + " slides";
-          mediaSlideIn.max = n;
-          if (+mediaSlideIn.value > n) mediaSlideIn.value = n;
-          mediaRemove.disabled = !attached;
-          if (attached) mediaSlideIn.value = attached.slide;
-        }
-        document.addEventListener("cuedeckchange", refreshDeckUI);
-        refreshDeckUI();
-        document.getElementById("deck-load").addEventListener("click", function () { deckFile.click(); });
-        deckFile.addEventListener("change", function () {
-          var n = loadDeck(deckFile.files || []);
-          deckMsg.textContent = n ? "Loaded " + n + " slides, ordered by filename." : "No PNG or JPG images in that selection.";
-          deckFile.value = "";
-        });
-        document.getElementById("deck-sample").addEventListener("click", function () {
-          useSample();
-          deckMsg.textContent = "Back to the built-in six slides.";
-        });
-        document.getElementById("media-attach").addEventListener("click", function () {
-          var n = parseInt(mediaSlideIn.value, 10);
-          if (!(n >= 1 && n <= slides.length)) { deckMsg.textContent = "Pick a slide from 1 to " + slides.length + "."; return; }
-          mediaFile.click();
-        });
-        mediaFile.addEventListener("change", function () {
-          var f = mediaFile.files && mediaFile.files[0];
-          mediaFile.value = "";
-          if (!f) return;
-          if (!/^(video|audio)\//.test(f.type) && !/\.(mp4|webm|mov|m4v|ogv|mp3|m4a|wav|ogg|aac|flac)$/i.test(f.name)) { deckMsg.textContent = "That isn’t a video or audio file."; return; }
-          var a = attachMedia(f, parseInt(mediaSlideIn.value, 10) || 1);
-          deckMsg.textContent = "Attached " + f.name + " to slide " + a.slide + ".";
-        });
-        mediaRemove.addEventListener("click", function () {
-          detachMedia();
-          deckMsg.textContent = "Media removed." + (isSample ? " Play Video uses the sample clip on slide " + canvasSlide() + " again." : "");
-        });
-        window.goTo = goTo; window.next = next; window.prev = prev;
-        window.playMedia = playMedia; window.pauseMedia = pauseMedia; window.toggleBlackout = toggleBlackout;
-      })();
-    </script>
-    <script>
-      (function () {
-        var view = document.getElementById("script-view");
-        var area = document.getElementById("script");
-        var editBtn = document.getElementById("edit-text");
-        var seqBtn = document.getElementById("mode-seq");
-        var anyBtn = document.getElementById("mode-any");
-        var list = document.getElementById("cue-list");
-        var msgEl = document.getElementById("cue-msg");
-        var tb = document.getElementById("cue-toolbar");
-        var tbLabel = document.getElementById("cue-tb-label");
-        var panel = document.getElementById("panel-script");
-        function SLIDES() { return window.cueDeck.count(); }
-        function MEDIA() { return window.cueDeck.media(); }
-        function playWhere() { var m = MEDIA(); return m ? "slide " + m : "no media yet"; }
-
-        var words = [];
-        var triggers = [];
-        var uid = 0;
-        var editing = false;
-        var tbMode = null, pending = null, editId = null;
-        window.cueTriggers = triggers;
-        window.cueSequential = true;
-        window.cueArmed = 0;
-
-        function norm(w) { return w.toLowerCase().replace(/[^\p{L}\p{N}']+/gu, ""); }
-        function cleanPhrase(s) { return s.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, ""); }
-        function tokenize(text) {
-          words = [];
-          var parts = text.replace(/^\s+/, "").split(/(\s+)/);
-          for (var i = 0; i < parts.length; i += 2) {
-            if (parts[i] === "") continue;
-            words.push({ t: parts[i], ws: parts[i + 1] || "" });
-          }
-        }
-        function locate(phrase, from) {
-          var p = phrase.split(/\s+/).map(norm);
-          for (var i = from || 0; i + p.length <= words.length; i++) {
-            var ok = true;
-            for (var j = 0; j < p.length; j++) { if (norm(words[i + j].t) !== p[j]) { ok = false; break; } }
-            if (ok) return i;
-          }
-          return -1;
-        }
-        var COLORS = { next: "", prev: "", goto: "x-cue--orange", play: "x-cue--orange", pause: "x-cue--red", blackout: "x-cue--red" };
-        function chipText(t) {
-          return { next: "▶ Next", prev: "◀ Prev", goto: "→ Slide " + t.slide, play: "▶ Play · " + playWhere(), pause: "❚❚ Pause", blackout: "■ Blackout" }[t.action];
-        }
-        function longText(t) {
-          return { next: "Next slide", prev: "Previous slide", goto: "Go to slide " + t.slide, play: "Play video (" + playWhere() + ")", pause: "Pause media", blackout: "Blackout" }[t.action];
-        }
-        function byId(id) { for (var i = 0; i < triggers.length; i++) if (triggers[i].id === id) return triggers[i]; return null; }
-        function msg(s) { msgEl.textContent = s || ""; }
-
-        function render() {
-          view.textContent = "";
-          var starts = {};
-          triggers.forEach(function (t) { starts[t.start] = t; });
-          var host = view, cur = null;
-          words.forEach(function (w, i) {
-            if (starts[i]) {
-              cur = starts[i];
-              host = document.createElement("span");
-              host.className = "x-cue " + COLORS[cur.action];
-              if (window.cueSequential && triggers.indexOf(cur) === window.cueArmed) host.classList.add("is-armed");
-              host.dataset.id = cur.id;
-              host.tabIndex = 0;
-              host.setAttribute("role", "button");
-              host.setAttribute("aria-label", "Trigger “" + cur.phrase + "”: " + longText(cur) + ". Edit");
-              view.appendChild(host);
-            }
-            var s = document.createElement("span");
-            s.className = "x-w"; s.dataset.i = i; s.textContent = w.t;
-            host.appendChild(s);
-            if (cur && i === cur.end) {
-              var c = document.createElement("span");
-              c.className = "x-cue__chip"; c.setAttribute("aria-hidden", "true"); c.textContent = chipText(cur);
-              host.appendChild(c);
-              host = view; cur = null;
-            }
-            host.appendChild(document.createTextNode(w.ws));
-          });
-        }
-        function renderList() {
-          list.textContent = "";
-          if (!triggers.length) {
-            var e = document.createElement("li");
-            e.innerHTML = '<span class="checklist__item">No triggers yet <small>Select 2 to 5 words in the script.</small></span>';
-            list.appendChild(e);
-            return;
-          }
-          triggers.forEach(function (t, i) {
-            var li = document.createElement("li");
-            var it = document.createElement("span");
-            it.className = "checklist__item";
-            it.textContent = (i + 1) + ". “" + t.phrase + "”";
-            var sm = document.createElement("small");
-            sm.textContent = longText(t);
-            it.appendChild(sm);
-            li.appendChild(it);
-            if (window.cueSequential && i === window.cueArmed) {
-              var c = document.createElement("span");
-              c.className = "chip chip--solid"; c.textContent = "Armed";
-              li.appendChild(c);
-            }
-            list.appendChild(li);
-          });
-        }
-        function commit() {
-          triggers.sort(function (a, b) { return a.start - b.start; });
-          window.cueArmed = 0; triggers.forEach(function (x) { x.spent = false; });
-          render();
-          renderList();
-          document.dispatchEvent(new CustomEvent("cuetriggerschange", { detail: triggers }));
-        }
-        function add(phrase, action, slide) {
-          var from = triggers.length ? triggers[triggers.length - 1].end + 1 : 0;
-          var at = locate(phrase, from);
-          if (at < 0) at = locate(phrase, 0);
-          if (at < 0) return;
-          var n = phrase.split(/\s+/).length;
-          triggers.push({ id: ++uid, phrase: phrase, action: action, slide: slide == null ? null : slide, start: at, end: at + n - 1 });
-        }
-
-        window.cueArm = function (i) {
-          window.cueArmed = Math.max(0, Math.min(triggers.length, i));
-          render(); renderList();
-        };
-        window.runCueAction = function (t) {
-          if (!t) return;
-          if (t.action === "next") window.next();
-          else if (t.action === "prev") window.prev();
-          else if (t.action === "goto") window.goTo(t.slide);
-          else if (t.action === "last") window.goTo(window.cueDeck.count());
-          else if (t.action === "play") { var m = MEDIA(); if (m) { window.goTo(m); window.playMedia(); } }
-          else if (t.action === "pause") window.pauseMedia();
-          else if (t.action === "blackout") window.toggleBlackout();
-        };
-
-        // Toolbar
-        function hideToolbar() { tb.hidden = true; tbMode = null; pending = null; editId = null; }
-        function showToolbar(mode, rect, t) {
-          tbMode = mode;
-          tbLabel.textContent = mode === "add" ? "Add a trigger for “" + pending.phrase + "”" : "Change “" + t.phrase + "”";
-          tb.querySelectorAll("button[data-act]").forEach(function (b) {
-            var a = b.dataset.act;
-            if (a === "remove") b.hidden = mode !== "edit";
-            else if (a !== "cancel") b.setAttribute("aria-pressed", mode === "edit" && t.action === a ? "true" : "false");
-          });
-          tb.hidden = false;
-          var w = tb.offsetWidth;
-          var left = rect.left + window.scrollX + rect.width / 2 - w / 2;
-          left = Math.max(window.scrollX + 8, Math.min(left, window.scrollX + document.documentElement.clientWidth - w - 8));
-          tb.style.left = left + "px";
-          tb.style.top = rect.bottom + window.scrollY + (("ontouchstart" in window) ? 30 : 8) + "px";
-        }
-        function selectedRange() {
-          var sel = window.getSelection();
-          if (!sel || !sel.rangeCount || sel.isCollapsed) return null;
-          var r = sel.getRangeAt(0);
-          if (!view.contains(r.startContainer) || !view.contains(r.endContainer)) return null;
-          var a = -1, b = -1;
-          view.querySelectorAll(".x-w").forEach(function (s) {
-            var tn = s.firstChild;
-            if (!tn) return;
-            if (r.comparePoint(tn, 0) === 1 || r.comparePoint(tn, tn.length) === -1) return;
-            if (r.endContainer === tn && r.endOffset === 0) return;
-            if (r.startContainer === tn && r.startOffset === tn.length) return;
-            var i = +s.dataset.i;
-            if (a < 0) a = i;
-            b = i;
-          });
-          if (a < 0) return null;
-          return { a: a, b: b, rect: r.getBoundingClientRect() };
-        }
-        function handleSelection() {
-          if (editing || panel.hidden) return;
-          var s = selectedRange();
-          if (!s) return;
-          var n = s.b - s.a + 1;
-          if (n < 2) { msg("Pick at least 2 words. A single word is too easy to say by accident."); if (tbMode === "add") hideToolbar(); return; }
-          if (n > 5) { msg("That’s " + n + " words. Keep a trigger to 5 words or fewer so it’s quick to say."); if (tbMode === "add") hideToolbar(); return; }
-          for (var i = 0; i < triggers.length; i++) {
-            if (s.a <= triggers[i].end && s.b >= triggers[i].start) {
-              msg("That overlaps the trigger “" + triggers[i].phrase + "”. Click its highlight to change it.");
-              if (tbMode === "add") hideToolbar();
-              return;
-            }
-          }
-          var phrase = cleanPhrase(words.slice(s.a, s.b + 1).map(function (w) { return w.t; }).join(" "));
-          msg("");
-          pending = { start: s.a, end: s.b, phrase: phrase };
-          editId = null;
-          showToolbar("add", s.rect);
-        }
-        var selTimer = null;
-        document.addEventListener("selectionchange", function () {
-          clearTimeout(selTimer);
-          selTimer = setTimeout(handleSelection, 450);
-        });
-        view.addEventListener("mouseup", function () { clearTimeout(selTimer); setTimeout(handleSelection, 0); });
-        view.addEventListener("touchend", function () { clearTimeout(selTimer); selTimer = setTimeout(handleSelection, 350); });
-
-        function openEdit(mark) {
-          var t = byId(+mark.dataset.id);
-          if (!t) return;
-          pending = null; editId = t.id;
-          showToolbar("edit", mark.getBoundingClientRect(), t);
-          msg("");
-        }
-        view.addEventListener("click", function (e) {
-          var m = e.target.closest(".x-cue");
-          if (!m) return;
-          var sel = window.getSelection();
-          if (sel && !sel.isCollapsed && sel.toString().trim()) return;
-          openEdit(m);
-        });
-        view.addEventListener("keydown", function (e) {
-          var m = e.target.closest && e.target.closest(".x-cue");
-          if (m && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); openEdit(m); }
-        });
-        document.addEventListener("pointerdown", function (e) {
-          if (tb.hidden || tb.contains(e.target)) return;
-          if (e.target.closest && e.target.closest(".x-cue")) return;
-          hideToolbar();
-        });
-        document.addEventListener("keydown", function (e) { if (e.key === "Escape" && !tb.hidden) hideToolbar(); });
-        tb.addEventListener("mousedown", function (e) { e.preventDefault(); });
-        tb.addEventListener("click", function (e) {
-          var b = e.target.closest("button");
-          if (!b) return;
-          var act = b.dataset.act;
-          if (act === "cancel") { hideToolbar(); return; }
-          var t = editId ? byId(editId) : null;
-          if (act === "remove") {
-            if (t) triggers.splice(triggers.indexOf(t), 1);
-            hideToolbar(); commit(); msg("Trigger removed.");
-            return;
-          }
-          var slide = null;
-          if (act === "goto") {
-            var v = window.prompt("Go to which slide? (1–" + SLIDES() + ")", t && t.slide ? t.slide : "");
-            if (v === null) return;
-            slide = parseInt(v, 10);
-            if (!(slide >= 1 && slide <= SLIDES())) { msg("Slide numbers run from 1 to " + SLIDES() + "."); return; }
-          }
-          if (act === "play") slide = MEDIA();
-          if (tbMode === "add" && pending) {
-            triggers.push({ id: ++uid, phrase: pending.phrase, action: act, slide: slide, start: pending.start, end: pending.end });
-          } else if (t) {
-            t.action = act; t.slide = slide;
-          }
-          var sel = window.getSelection();
-          if (sel) sel.removeAllRanges();
-          hideToolbar();
-          commit();
-        });
-
-        // Edit text toggle
-        editBtn.addEventListener("click", function () {
-          hideToolbar();
-          if (!editing) {
-            editing = true;
-            area.value = words.map(function (w) { return w.t + w.ws; }).join("");
-            view.hidden = true; area.hidden = false;
-            editBtn.textContent = "Done editing"; editBtn.setAttribute("aria-pressed", "true");
-            msg("");
-            area.focus();
-            return;
-          }
-          editing = false;
-          tokenize(area.value);
-          var old = triggers.slice(), from = 0, lost = 0;
-          triggers.length = 0;
-          old.forEach(function (t) {
-            var at = locate(t.phrase, from);
-            if (at < 0) { lost++; return; }
-            var n = t.phrase.split(/\s+/).length;
-            t.start = at; t.end = at + n - 1; from = t.end + 1;
-            triggers.push(t);
-          });
-          area.hidden = true; view.hidden = false;
-          editBtn.textContent = "Edit text"; editBtn.setAttribute("aria-pressed", "false");
-          commit();
-          msg(lost ? lost + (lost === 1 ? " trigger no longer matched" : " triggers no longer matched") + " the text and " + (lost === 1 ? "was" : "were") + " removed." : "");
-        });
-
-        // Sequential / any order
-        function setSeq(on) {
-          window.cueSequential = on;
-          window.cueArmed = 0; triggers.forEach(function (x) { x.spent = false; });
-          seqBtn.setAttribute("aria-pressed", on ? "true" : "false");
-          anyBtn.setAttribute("aria-pressed", on ? "false" : "true");
-          render(); renderList();
-        }
-        seqBtn.addEventListener("click", function () { setSeq(true); });
-        anyBtn.addEventListener("click", function () { setSeq(false); });
-        document.querySelectorAll(".x-tab[role=tab]").forEach(function (t) { t.addEventListener("click", hideToolbar); });
-
-        // Sample script and preloaded triggers
-        tokenize(area.value);
-        add("something every one of us", "next", null);
-        add("show you how this works", "next", null);
-        add("play a short clip", "play", 4);
-        add("my own phrases still", "next", null);
-        add("eyes on the room", "next", null);
-        commit();
-        document.addEventListener("cuedeckchange", function () { render(); renderList(); });
-
-        // Export / import script + triggers
-        document.getElementById("script-export").addEventListener("click", function () {
-          if (editing) editBtn.click();
-          var data = {
-            type: "speakeasy-script", version: 1,
-            text: words.map(function (w) { return w.t + w.ws; }).join(""),
-            sequential: !!window.cueSequential,
-            triggers: triggers.map(function (t) { return { phrase: t.phrase, action: t.action, slide: t.slide, start: t.start }; })
-          };
-          var blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
-          var a = document.createElement("a");
-          a.href = URL.createObjectURL(blob); a.download = "speakeasy-script.json";
-          document.body.appendChild(a); a.click(); a.remove();
-          setTimeout(function () { URL.revokeObjectURL(a.href); }, 1000);
-          msg("Exported speakeasy-script.json with " + triggers.length + " triggers.");
-        });
-        var scriptIn = document.getElementById("script-import");
-        document.getElementById("script-import-btn").addEventListener("click", function () { scriptIn.click(); });
-        scriptIn.addEventListener("change", function () {
-          var f = scriptIn.files && scriptIn.files[0];
-          scriptIn.value = "";
-          if (!f) return;
-          var r = new FileReader();
-          r.onload = function () {
-            var d = null;
-            try { d = JSON.parse(r.result); } catch (e) {}
-            if (!d || typeof d.text !== "string" || !Array.isArray(d.triggers)) { msg("That file isn’t a SpeakEasy script export."); return; }
-            hideToolbar();
-            if (editing) {
-              editing = false; area.hidden = true; view.hidden = false;
-              editBtn.textContent = "Edit text"; editBtn.setAttribute("aria-pressed", "false");
-            }
-            area.value = d.text;
-            tokenize(d.text);
-            triggers.length = 0;
-            var lost = 0;
-            d.triggers.forEach(function (t) {
-              if (!t || typeof t.phrase !== "string" || !COLORS.hasOwnProperty(t.action)) { lost++; return; }
-              var n = t.phrase.split(/\s+/).length;
-              var at = typeof t.start === "number" ? locate(t.phrase, t.start) : -1;
-              if (at !== t.start) at = locate(t.phrase, 0);
-              var clash = triggers.some(function (o) { return at <= o.end && at + n - 1 >= o.start; });
-              if (at < 0 || clash) { lost++; return; }
-              triggers.push({ id: ++uid, phrase: t.phrase, action: t.action, slide: t.slide == null ? null : t.slide, start: at, end: at + n - 1 });
-            });
-            window.cueArmed = 0;
-            if (typeof d.sequential === "boolean") setSeq(d.sequential);
-            commit();
-            msg("Imported the script with " + triggers.length + " triggers" + (lost ? "; " + lost + " didn’t match the text and were skipped." : "."));
-          };
-          r.readAsText(f);
-        });
-      })();
-    </script>
-    <div class="x-toast" id="toast" role="status" aria-live="polite"></div>
-    <script>
+    
       (function () {
         function SLIDES() { return window.cueDeck.count(); }
         function MEDIA() { return window.cueDeck.media(); }
@@ -615,7 +154,13 @@ Media(); });
           if (document.getElementById("panel-present").hidden) return;
           var tag = (e.target.tagName || "").toLowerCase();
           if (tag === "textarea" || tag === "input" || tag === "select") return;
+          if (e.ctrlKey || e.metaKey || e.altKey) return;
           if (["ArrowRight", "ArrowDown", " ", "PageDown", "ArrowLeft", "ArrowUp", "PageUp"].indexOf(e.key) >= 0) { snapshot(); lastNav = Date.now(); }
+          else if (e.key === "b" || e.key === "B" || e.key === ".") snapshot();
+          else if (e.key === "Enter" && window.cueDigitsPending && window.cueDigitsPending()) {
+            var n = parseInt(window.cueDigitsPending(), 10);
+            if (n >= 1 && n <= window.cueDeck.count() && n !== window.cueGetState().slide) { snapshot(); lastNav = Date.now(); }
+          }
         }, true);
 
         // ---------- Toast ----------
@@ -627,6 +172,13 @@ Media(); });
           toastT = setTimeout(function () { toastEl.classList.remove("is-on"); }, 2600);
         }
         window.cueToast = toast;
+        window.cueHeldBack = 0;
+        function heldBack(text, loud) {
+          window.cueHeldBack++;
+          if (loud) toast(text);
+          var vm = document.getElementById("voice-msg");
+          if (vm) vm.textContent = text.replace(/^⏸ /, "");
+        }
         document.addEventListener("cuedeckchange", function () { renderPhrases(); updateReadout(); });
 
         // ---------- How to test card ----------
@@ -649,10 +201,13 @@ Media(); });
         var NUMS = { zero: 0, one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10,
           eleven: 11, twelve: 12, thirteen: 13, fourteen: 14, fifteen: 15, sixteen: 16, seventeen: 17, eighteen: 18, nineteen: 19, twenty: 20 };
         var SOUNDALIKE = { to: 2, too: 2, for: 4, fore: 4, won: 1, ate: 8 };
-        function normalize(s) {
+        // Each word is matched as w (number words become digits) and shown as d (as heard),
+        // so a toast reads “every one of us”, not “every 1 of us”.
+        function tokens(s) {
           return String(s).toLowerCase().replace(/[’']/g, "").replace(/[^\p{L}\p{N}]+/gu, " ").trim()
-            .split(/\s+/).filter(Boolean).map(function (w) { return NUMS.hasOwnProperty(w) ? String(NUMS[w]) : w; });
+            .split(/\s+/).filter(Boolean).map(function (d) { return { w: NUMS.hasOwnProperty(d) ? String(NUMS[d]) : d, d: d }; });
         }
+        function normalize(s) { return tokens(s).map(function (x) { return x.w; }); }
         function numberOf(w) {
           if (/^\d+$/.test(w)) return parseInt(w, 10);
           if (SOUNDALIKE.hasOwnProperty(w)) return SOUNDALIKE[w];
@@ -674,14 +229,14 @@ Media(); });
           for (var i = 0; i < entries.length; i++) if (entries[i].key === key) { e = entries[i]; break; }
           var isNew = !e;
           if (!e) { e = { key: key, used: 0 }; entries.push(e); }
-          var nw = normalize(text);
+          var tk = tokens(text), nw = tk.map(function (x) { return x.w; });
           if (!isNew && e.final && Date.now() - e.time > 1500) { e.used = 0; }
           else if (!isNew && e.used) {
             // same slot, different words (a revision or a reused result index): only keep what still matches
             var kk = 0; while (kk < e.used && kk < nw.length && e.words[kk] === nw[kk]) kk++;
             e.used = kk;
           }
-          e.raw = text; e.words = nw; e.final = final; e.time = Date.now();
+          e.raw = text; e.words = nw; e.disp = tk.map(function (x) { return x.d; }); e.final = final; e.time = Date.now();
           if (isNew && IOS_DEDUPE && key.charAt(0) === "s") {
             // Safari can re-send the whole session so far as one new result: skip the earlier results it repeats
             var sess = key.split(":")[0], pos = 0, prior = entries.filter(function (o) { return o !== e && o.key.split(":")[0] === sess && o.words && o.words.length; });
@@ -705,7 +260,7 @@ Media(); });
         function buffer() {
           var b = [];
           entries.forEach(function (e) {
-            for (var i = e.used; i < e.words.length; i++) b.push({ w: e.words[i], e: e, i: i });
+            for (var i = e.used; i < e.words.length; i++) b.push({ w: e.words[i], d: (e.disp && e.disp[i]) || e.words[i], e: e, i: i });
           });
           return b;
         }
@@ -717,12 +272,11 @@ Media(); });
           trig.forEach(function (t, idx) {
             if (window.cueSequential && idx !== window.cueArmed && idx !== window.cueArmed + 1) return;
             if (!window.cueSequential && t.spent) return;
-            if (coolingDown("s" + t.id)) return;
-            list.push({ kind: "script", t: t, idx: idx, tokens: normalize(t.phrase) });
+            list.push({ kind: "script", t: t, idx: idx, tokens: normalize(t.phrase), cooling: coolingDown("s" + t.id) });
           });
           window.cuePhrases.forEach(function (p) {
             var toks = normalize(p.phrase).map(function (w) { return w === "n" ? "#N" : w; });
-            if (toks.length && !coolingDown("p" + p.phrase)) list.push({ kind: "phrase", p: p, tokens: toks });
+            if (toks.length) list.push({ kind: "phrase", p: p, tokens: toks, cooling: coolingDown("p" + p.phrase) });
           });
           return list;
         }
@@ -767,14 +321,22 @@ Media(); });
 
         var LABEL = { next: "Next Slide", prev: "Previous Slide", pause: "Pause Media", blackout: "Blackout", undo: "Undo" };
         function fire(m, b) {
-          var heard = b.slice(m.start, m.end + 1).map(function (x) { return x.w; }).join(" ");
+          var heard = b.slice(m.start, m.end + 1).map(function (x) { return x.d; }).join(" ");
           var c = m.c, action, slide, label;
+          if (c.cooling) {
+            // The same cue within 3 s (often a recognizer re-send): held back, and said so.
+            heldBack("Held back a repeat of “" + heard + "” (3-second cooldown).", false);
+            return;
+          }
           if (c.kind === "script") { action = c.t.action; slide = c.t.slide; }
           else { action = c.p.action; slide = c.p.slide; if (action === "goto" && !slide) slide = m.num; }
           if (action === "last") { action = "goto"; slide = SLIDES(); }
           if (action === "play") slide = MEDIA();
+          if ((action === "next" || action === "prev") && Date.now() - lastNav < 1200) {
+            heldBack("⏸ Held back “" + heard + "” — the slide just changed (1.2-second cooldown)", true);
+            return;
+          }
           lastFired[c.kind === "script" ? "s" + c.t.id : "p" + c.p.phrase] = Date.now();
-          if ((action === "next" || action === "prev") && Date.now() - lastNav < 1200) return;
           if (action === "goto" && !(slide >= 1 && slide <= SLIDES())) {
             toast("Slide " + slide + " doesn’t exist (deck has " + SLIDES() + ") — heard “" + heard + "”");
             return;
@@ -863,10 +425,14 @@ Media(); });
           sim.value = "";
         });
 
-        // ---------- Speech recognition ----------
-        var SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+        // ---------- Speech engines ----------
+        // Recognizers live in js/recognizers/ and all feed upsert() + process() above, so the
+        // matcher is the same whichever engine is listening.
+        var ENGINES = window.SpeakEasyRecognizers || {};
         var listenBtn = document.getElementById("listen");
         var statusEl = document.getElementById("mic-status");
+        var engineChip = document.getElementById("engine-chip");
+        var liveDot = document.getElementById("live-dot");
         var banner = document.getElementById("voice-banner");
         var bannerHead = banner.querySelector(".callout__head");
         var bannerLead = document.getElementById("voice-lead");
@@ -874,8 +440,9 @@ Media(); });
         var helpEl = document.getElementById("mic-help");
         var helpMsg = document.getElementById("mic-help-msg");
         var helpWhy = document.getElementById("mic-help-why");
-        // wanted: the presenter asked to listen. started: recognition onstart actually fired.
-        var rec = null, wanted = false, started = false, lastErr = "", startTimer = null, errCount = 0;
+        // wanted: the presenter asked to listen. mode: which engine is serving that wish.
+        var engine = null, wanted = false, lastErr = "", everListened = false;
+        var mode = "idle"; // "primary" | "fallback" | "manual" | "idle"
 
         function setStatus(s) {
           statusEl.textContent = s;
@@ -893,11 +460,79 @@ Media(); });
           banner.hidden = false;
         }
         function clearProblems() { banner.hidden = true; say(""); }
+        function setLive(on, sendingNow) {
+          liveDot.hidden = !on;
+          liveDot.classList.toggle("is-sending", !!(on && sendingNow));
+        }
+        function setChip(text, cls) {
+          engineChip.textContent = text;
+          engineChip.classList.toggle("is-fallback", cls === "fallback");
+          engineChip.classList.toggle("is-manual", cls === "manual");
+        }
+        function idleChip() { setChip(settings.engine === "grok" ? "Grok STT" : "Browser", ""); }
+        function stopEngine(graceful) {
+          var e = engine; engine = null;
+          if (e) { try { graceful ? e.stop() : e.abort(); } catch (x) {} }
+          setLive(false);
+        }
         function fail(status) {
-          wanted = false; started = false; clearTimeout(startTimer);
-          if (rec) { try { rec.abort(); } catch (e) {} }
+          wanted = false; stopEngine(false); mode = "idle";
           setStatus(status); setButton();
         }
+        window.cueEngine = function () { return { engine: engine ? engine.name : null, mode: mode, wanted: wanted, chip: engineChip.textContent }; };
+
+        // ---------- Settings ----------
+        var SETTINGS_KEY = "speakeasy.settings.v1";
+        var LANGS = [].map.call(document.querySelectorAll("#set-lang option"), function (o) { return o.value; });
+        function defaultLang() {
+          var nav = (navigator.languages && navigator.languages[0]) || navigator.language || "en-US";
+          if (LANGS.indexOf(nav) >= 0) return nav;
+          var base = nav.split("-")[0];
+          for (var i = 0; i < LANGS.length; i++) if (LANGS[i].split("-")[0] === base) return LANGS[i];
+          return "en-US";
+        }
+        var settings = { engine: "browser", lang: defaultLang(), proxyUrl: "", accessCode: "", gate: 4 };
+        try {
+          var st = JSON.parse(localStorage.getItem(SETTINGS_KEY));
+          if (st && typeof st === "object") {
+            if (st.engine === "browser" || st.engine === "grok") settings.engine = st.engine;
+            if (LANGS.indexOf(st.lang) >= 0) settings.lang = st.lang;
+            if (typeof st.proxyUrl === "string") settings.proxyUrl = st.proxyUrl;
+            if (typeof st.accessCode === "string") settings.accessCode = st.accessCode;
+            if (st.gate >= 0 && st.gate <= 10) settings.gate = +st.gate;
+          }
+        } catch (e) {}
+        function saveSettings() { try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings)); } catch (e) {} }
+        var setEngine = document.getElementById("set-engine"), setLang = document.getElementById("set-lang");
+        var setProxy = document.getElementById("set-proxy"), setCode = document.getElementById("set-code");
+        var setGate = document.getElementById("set-gate"), setGateVal = document.getElementById("set-gate-val");
+        var settingsMsg = document.getElementById("settings-msg");
+        function showEngineFields() {
+          document.querySelectorAll("#voice-settings [data-engine]").forEach(function (el) { el.hidden = el.getAttribute("data-engine") !== settings.engine; });
+          setGateVal.textContent = settings.gate === 0 ? "off" : String(settings.gate);
+          if (!wanted) idleChip();
+        }
+        setEngine.value = settings.engine; setLang.value = settings.lang;
+        setProxy.value = settings.proxyUrl; setCode.value = settings.accessCode; setGate.value = settings.gate;
+        function changed(note) {
+          saveSettings(); showEngineFields();
+          settingsMsg.textContent = wanted ? "Saved. Stop and start listening to apply." : (note || "Saved.");
+        }
+        setEngine.addEventListener("change", function () { settings.engine = setEngine.value; changed(settings.engine === "grok" && !settings.proxyUrl ? "Saved. Add your proxy URL to use Grok STT." : ""); });
+        setLang.addEventListener("change", function () { settings.lang = setLang.value; changed(); });
+        setProxy.addEventListener("change", function () { settings.proxyUrl = setProxy.value.trim(); changed(); });
+        setCode.addEventListener("change", function () { settings.accessCode = setCode.value; changed(); });
+        setGate.addEventListener("input", function () { settings.gate = +setGate.value; changed(); });
+        showEngineFields();
+
+        // Boost phrases for Grok STT: script triggers first, then My Phrases.
+        function boostPhrases() {
+          return ENGINES.grok.keyterms([
+            (window.cueTriggers || []).map(function (t) { return t.phrase; }),
+            (window.cuePhrases || []).map(function (p) { return p.phrase; })
+          ]);
+        }
+        window.cueBoostPhrases = boostPhrases;
 
         // ---------- Diagnosis ----------
         function isLockedSandbox() {
@@ -931,100 +566,133 @@ Media(); });
 
         // ---------- Recognition ----------
         function dropInterim() { entries = entries.filter(function (e) { return e.final; }); }
-        function makeRec() {
-          rec = new SR();
-          rec.continuous = true; rec.interimResults = true; rec.lang = "en-US";
-          rec.onstart = function () {
-            started = true; everListened = true; clearTimeout(startTimer);
-            if (!wanted) { try { rec.stop(); } catch (e) {} return; }
-            setStatus("Listening");
-            banner.hidden = true;
-            if (!lastErr) say("");
-          };
-          rec.onresult = function (ev) {
-            lastErr = ""; errCount = 0; say("");
-            for (var i = ev.resultIndex; i < ev.results.length; i++) {
-              upsert("s" + session + ":" + i, ev.results[i][0].transcript, ev.results[i].isFinal);
-            }
-            process();
-          };
-          rec.onerror = function (ev) {
-            var err = ev && ev.error;
-            if (err === "aborted") return;
-            lastErr = err || "unknown";
-            if (IOS0 && err === "not-allowed" && everListened) {
-              wanted = false; setButton(); fail("Paused");
-              say("Your iPhone paused the microphone. Tap Start Listening to resume.");
-              return;
-            }
-            if (IOS0 && err === "service-not-allowed") {
-              fail("Dictation off");
-              say("Speech recognition is off on this iPhone. Turn on Dictation (see Mic help), then tap Start Listening.");
-              openHelp(true);
-              return;
-            }
-            if (err === "not-allowed" || err === "service-not-allowed") {
-              if (isLockedSandbox()) { fail("Blocked"); showBanner("Microphone blocked here", SANDBOX_MSG); }
-              else denied();
-              return;
-            }
-            errCount++;
-            if (err === "no-speech") { say("No speech heard — still listening."); return; }
-            if (err === "audio-capture") { setStatus("No mic"); say("No microphone found — plug one in or check another app isn't using it. Retrying…"); return; }
-            if (err === "network") { setStatus("Offline"); say("Speech service unreachable — check your connection. Retrying…"); return; }
-            setStatus("Error"); say("Voice stopped (" + lastErr + "). Retrying…");
-          };
-          rec.onend = function () {
-            started = false;
-            session++;
-            dropInterim();
-            if (wanted) {
-              if (lastErr && lastErr !== "no-speech") setStatus("Reconnecting");
-              var delay = lastErr && lastErr !== "no-speech" ? Math.min(1000 * errCount, 5000) : 250;
-              setTimeout(function () { if (wanted && !started) beginRec(); }, delay);
-            } else if (statusEl.textContent === "Listening" || statusEl.textContent === "Starting") {
-              setStatus("Paused");
-            }
-          };
+        function onResult(key, text, isFinal) {
+          if (lastErr) { lastErr = ""; say(""); }
+          upsert(key, text, isFinal);
+          process();
         }
-        function beginRec() {
-          if (!rec) makeRec();
-          if (statusEl.textContent !== "Listening") setStatus(lastErr ? statusEl.textContent : "Starting");
-          clearTimeout(startTimer);
-          startTimer = setTimeout(function () {
-            if (wanted && !started) {
-              fail("Not listening");
-              say("Voice didn't start. The microphone may be blocked — see Mic help.");
-            }
-          }, 6000);
-          try { rec.start(); }
-          catch (e) {
-            if (/already/i.test(String(e && e.message))) return;
-            if (isLockedSandbox()) { fail("Blocked"); showBanner("Microphone blocked here", SANDBOX_MSG); return; }
-            fail("Not listening");
-            say("Voice couldn't start: " + (e && e.message ? e.message : "unknown error") + ".");
-          }
+        function onEngineState(state, info) {
+          if (!wanted) return;
+          if (state === "listening") {
+            everListened = true;
+            setStatus("Listening"); banner.hidden = true; setLive(true, false);
+            if (info && info.recovered) say("");
+          } else if (state === "reconnecting") { setStatus("Reconnecting"); }
+          else if (state === "sending") setLive(true, true);
+          else if (state === "gated") setLive(true, false);
         }
-        function startRec() {
-          clearProblems();
-          lastErr = ""; errCount = 0;
-          if (isLockedSandbox()) { fail("Blocked"); showBanner("Microphone blocked here", SANDBOX_MSG); return; }
-          if (!SR) {
+        // Manual control is the last resort: voice off, keys, buttons and clickers still work.
+        function goManual(reason) {
+          wanted = false; stopEngine(false); mode = "manual";
+          keepAwake(true); // the talk goes on
+          setStatus("Manual"); setButton(); setChip("Manual only", "manual");
+          say(reason + " Voice is off — use Next/Back, the arrow keys or your clicker. Tap Start Listening to try again.");
+          toast("Voice is off — manual control");
+        }
+        function fallBack(reason) {
+          stopEngine(false);
+          toast("Grok STT unavailable — switched to Browser recognition");
+          say(reason + " Switched to Browser recognition.");
+          startBrowser(true);
+        }
+
+        function startBrowser(isFallback) {
+          var B = ENGINES.browser;
+          if (!B || !B.supported()) {
+            if (isFallback) { goManual("Browser recognition isn't available here either."); return; }
             fail("Unsupported"); showBanner("Voice unavailable", UNSUPPORTED_MSG);
             if (IOS_OTHER && navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(location.href).then(function () { say("Link copied. Open Safari and paste it in the address bar."); }, function () {});
             return;
           }
-          wanted = true; setButton(); setStatus("Starting");
-          if (window.cueUnlockMedia) window.cueUnlockMedia();
-          keepAwake(true);
-          if (IOS0) { beginRec(); return; }
+          mode = isFallback ? "fallback" : "primary";
+          setChip(isFallback ? "Fallback: Browser" : "Browser", isFallback ? "fallback" : "");
+          var go = function () {
+            if (!wanted) return;
+            engine = B.create({ lang: settings.lang, onResult: onResult, onState: onEngineState, onError: browserError, onSessionEnd: dropInterim });
+            engine.start();
+          };
+          if (IOS0) { go(); return; } // iPhone: start within the tap
           micPermission().then(function (state) {
             if (!wanted) return;
             if (state === "denied") { denied(); return; }
-            beginRec();
+            go();
           });
         }
-        var everListened = false;
+        function browserError(err) {
+          if (!wanted) return;
+          var code = err.code;
+          lastErr = code;
+          if (err.fatal) {
+            if (IOS0 && code === "not-allowed" && err.everListened) { fail("Paused"); say("Your iPhone paused the microphone. Tap Start Listening to resume."); return; }
+            if (IOS0 && code === "service-not-allowed") { fail("Dictation off"); say("Speech recognition is off on this iPhone. Turn on Dictation (see Mic help), then tap Start Listening."); openHelp(true); return; }
+            if (code === "not-allowed" || code === "service-not-allowed") {
+              if (isLockedSandbox()) { fail("Blocked"); showBanner("Microphone blocked here", SANDBOX_MSG); }
+              else denied();
+              return;
+            }
+            if (mode === "fallback") { goManual("Browser recognition stopped (" + code + ")."); return; }
+            if (code === "start-timeout") { fail("Not listening"); say("Voice didn't start. The microphone may be blocked — see Mic help."); return; }
+            if (code === "start-failed") {
+              if (isLockedSandbox()) { fail("Blocked"); showBanner("Microphone blocked here", SANDBOX_MSG); return; }
+              fail("Not listening"); say("Voice couldn't start: " + (err.message || "unknown error") + "."); return;
+            }
+            fail("Not listening"); say("Voice stopped (" + code + ")."); return;
+          }
+          if (code === "no-speech") { say("No speech heard — still listening."); return; }
+          if (code === "audio-capture") { setStatus("No mic"); say("No microphone found — plug one in or check another app isn't using it. Retrying…"); return; }
+          if (code === "network") {
+            if (mode === "fallback" && err.count >= 3) { goManual("The browser's speech service is unreachable too."); return; }
+            setStatus("Offline"); say("Speech service unreachable — check your connection. Retrying…"); return;
+          }
+          setStatus("Error"); say("Voice stopped (" + code + "). Retrying…");
+        }
+
+        function startGrok() {
+          var G = ENGINES.grok;
+          if (!settings.proxyUrl) { say("Grok STT needs your proxy URL (Voice settings)."); fallBack("No Grok STT proxy is set."); return; }
+          if (!G || !G.supported()) { fallBack("This browser can't stream audio to Grok STT."); return; }
+          mode = "primary";
+          setChip("Grok STT", "");
+          engine = G.create({
+            proxyUrl: settings.proxyUrl, accessCode: settings.accessCode,
+            language: settings.lang.split("-")[0], keyterms: boostPhrases(), gate: settings.gate,
+            workletUrl: new URL("js/recognizers/pcm-worklet.js", location.href).href,
+            onResult: onResult, onState: onEngineState, onError: grokError, onSessionEnd: dropInterim
+          });
+          window.cueGrokStats = engine.stats;
+          engine.start();
+        }
+        function grokError(err) {
+          if (!wanted) return;
+          lastErr = err.code;
+          if (err.code === "not-allowed") {
+            if (isLockedSandbox()) { fail("Blocked"); showBanner("Microphone blocked here", SANDBOX_MSG); }
+            else denied();
+            return;
+          }
+          if (err.fatal) {
+            var why = {
+              "no-proxy": "No Grok STT proxy is set.",
+              "bad-proxy-url": "The Grok STT proxy URL isn't valid.",
+              "unauthorized": "The Grok STT proxy refused this page (check the access code and allowed origins).",
+              "connect-failed": "Couldn't reach the Grok STT proxy.",
+              "connect-timeout": "Grok STT didn't answer in time.",
+              "disconnected": "Grok STT disconnected."
+            }[err.code] || ("Grok STT stopped (" + (err.message || err.code) + ").");
+            fallBack(why);
+          }
+        }
+
+        function startRec() {
+          clearProblems();
+          lastErr = "";
+          if (isLockedSandbox()) { fail("Blocked"); showBanner("Microphone blocked here", SANDBOX_MSG); return; }
+          wanted = true; setButton(); setStatus("Starting");
+          if (window.cueUnlockMedia) window.cueUnlockMedia();
+          keepAwake(true);
+          if (settings.engine === "grok") startGrok();
+          else startBrowser(false);
+        }
         var wakeLock = null;
         function keepAwake(on) {
           try {
@@ -1032,16 +700,18 @@ Media(); });
             if (!on && wakeLock) { wakeLock.release(); wakeLock = null; }
           } catch (e) {}
         }
-        document.addEventListener("visibilitychange", function () { if (document.visibilityState === "visible" && wanted) keepAwake(true); });
+        document.addEventListener("visibilitychange", function () { if (document.visibilityState === "visible" && (wanted || mode === "manual")) keepAwake(true); });
         function stopRec() {
           keepAwake(false);
-          wanted = false; clearTimeout(startTimer); setButton();
-          if (rec) { try { rec.stop(); } catch (e) {} }
+          wanted = false; setButton();
+          stopEngine(true);
+          mode = "idle";
           lastErr = ""; say("");
-          setStatus("Paused");
+          setStatus("Paused"); idleChip();
         }
         listenBtn.addEventListener("click", function () { wanted ? stopRec() : startRec(); });
         setStatus("Paused"); setButton();
+        window.addEventListener("pagehide", function () { stopEngine(true); });
 
         // ---------- Mic help ----------
         var ua = navigator.userAgent || "";
@@ -1102,7 +772,7 @@ Media(); });
           navigator.mediaDevices.getUserMedia({ audio: true }).then(function (stream) {
             stream.getTracks().forEach(function (t) { t.stop(); });
             helpMsg.textContent = "Microphone allowed. Starting to listen…";
-            if (!SR) { showBanner("Voice unavailable", UNSUPPORTED_MSG); return; }
+            if (settings.engine !== "grok" && !(ENGINES.browser && ENGINES.browser.supported())) { showBanner("Voice unavailable", UNSUPPORTED_MSG); return; }
             if (wanted) stopRec();
             setTimeout(function () { startRec(); if (wanted) helpEl.hidden = true; }, 300);
           }, function (err) {
@@ -1120,7 +790,4 @@ Media(); });
           });
         });
       })();
-    </script>
-  
-
-</body></html>
+    
