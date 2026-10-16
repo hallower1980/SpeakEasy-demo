@@ -1,0 +1,11 @@
+# SpeakEasy STT proxy — Cloudflare Worker
+# Deploy: see worker/README.md. Never put XAI_API_KEY here; it's a secret:
+#   npx wrangler secret put XAI_API_KEY
+name = "speakeasy-stt"
+main = "src/index.js"
+compatibility_date = "2026-10-01"
+
+[vars]
+# Page origins allowed to connect, comma-separated, no trailing slash.
+# Example: "https://hallower1980.github.io,https://speakeasy.pages.dev,https://speakeasy.grok.me"
+ALLOWED_ORIGINS = "https://hallower1980.github.io"
